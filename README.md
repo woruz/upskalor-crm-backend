@@ -93,3 +93,4 @@ Business rules should stay inside the module that owns them. Move code into `com
 ## License
 
 This project is currently private and does not yet declare a public license.
+
