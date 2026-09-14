@@ -41,10 +41,15 @@ npm run lint          # Check the code with ESLint
 npm run lint:fix      # Fix automatically fixable ESLint issues
 npm run format:check  # Check formatting with Prettier
 npm run format:fix    # Format files with Prettier
+npm run build         # Compile TypeScript to dist/
+npm start             # Start the compiled server
+npm run dev           # Rebuild and restart on source changes
 npm run prepare       # Install Husky Git hooks
 ```
 
-A runtime start script will be added when the application entrypoint is implemented.
+By default, the server listens on `0.0.0.0:3000`. Configure it with `HOST`, `PORT`, `NODE_ENV`, and `REQUEST_BODY_LIMIT` environment variables.
+
+The initial server exposes `GET /health/live` for process health and `GET /health/ready` for readiness checks. Business routes will be added under `src/routes/` as the CRM modules are implemented.
 
 ## Commit messages
 

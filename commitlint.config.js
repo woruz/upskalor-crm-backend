@@ -1,5 +1,5 @@
 /** @type {import('@commitlint/types').UserConfig} */
-module.exports = {
+export default {
     extends: ['@commitlint/config-conventional'],
 
     rules: {
@@ -22,3 +22,4 @@ module.exports = {
         'scope-case': [2, 'always', 'kebab-case']
     }
 }
+
