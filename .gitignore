@@ -1,1 +1,10 @@
 node_modules
+.env
+.env.*
+!.env.example
+dist
+coverage
+drizzle.config.js
+drizzle.config.js.map
+drizzle.config.d.ts
+drizzle.config.d.ts.map

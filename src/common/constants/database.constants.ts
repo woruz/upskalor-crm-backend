@@ -1,0 +1,5 @@
+export const DATABASE_POOL = {
+    MAX_CONNECTIONS: 20,
+    IDLE_TIMEOUT_MS: 30_000,
+    CONNECTION_TIMEOUT_MS: 10_000
+} as const
