@@ -61,6 +61,28 @@ export const users = rootSchema.table(
     })
 )
 
+export const refreshTokens = rootSchema.table(
+    'refresh_tokens',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        userId: uuid('user_id')
+            .notNull()
+            .references(() => users.id, { onDelete: 'cascade' }),
+        tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
+        familyId: uuid('family_id').notNull(),
+        expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+        revokedAt: timestamp('revoked_at', { withTimezone: true }),
+        replacedByTokenId: uuid('replaced_by_token_id'),
+        createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+        lastUsedAt: timestamp('last_used_at', { withTimezone: true })
+    },
+    (table) => ({
+        userIndex: index('refresh_tokens_user_id_idx').on(table.userId),
+        familyIndex: index('refresh_tokens_family_id_idx').on(table.familyId),
+        expiryIndex: index('refresh_tokens_expires_at_idx').on(table.expiresAt)
+    })
+)
+
 export const roleRelations = relations(roles, ({ many }) => ({
     users: many(users)
 }))

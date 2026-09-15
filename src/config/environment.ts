@@ -43,12 +43,18 @@ export const loadDatabaseConfig = (environment: NodeJS.ProcessEnv = process.env)
 export const loadStorageConfig = (environment: NodeJS.ProcessEnv = process.env): StorageConfig => ({
     region: requireEnvironmentValue(environment, ENVIRONMENT_VARIABLES.AWS_REGION),
     bucket: requireEnvironmentValue(environment, ENVIRONMENT_VARIABLES.S3_BUCKET),
-    presignExpiresIn: parsePositiveInteger(requireEnvironmentValue(environment, ENVIRONMENT_VARIABLES.S3_PRESIGN_EXPIRES_IN), ENVIRONMENT_VARIABLES.S3_PRESIGN_EXPIRES_IN),
+    presignExpiresIn: parsePositiveInteger(
+        requireEnvironmentValue(environment, ENVIRONMENT_VARIABLES.S3_PRESIGN_EXPIRES_IN),
+        ENVIRONMENT_VARIABLES.S3_PRESIGN_EXPIRES_IN
+    ),
     maxLeadImportFileSize: parsePositiveInteger(
         requireEnvironmentValue(environment, ENVIRONMENT_VARIABLES.MAX_LEAD_IMPORT_FILE_SIZE),
         ENVIRONMENT_VARIABLES.MAX_LEAD_IMPORT_FILE_SIZE
     ),
-    maxLeadExportRows: parsePositiveInteger(requireEnvironmentValue(environment, ENVIRONMENT_VARIABLES.MAX_LEAD_EXPORT_ROWS), ENVIRONMENT_VARIABLES.MAX_LEAD_EXPORT_ROWS)
+    maxLeadExportRows: parsePositiveInteger(
+        requireEnvironmentValue(environment, ENVIRONMENT_VARIABLES.MAX_LEAD_EXPORT_ROWS),
+        ENVIRONMENT_VARIABLES.MAX_LEAD_EXPORT_ROWS
+    )
 })
 
 export const loadConfig = (environment: NodeJS.ProcessEnv = process.env): AppConfig => {
@@ -57,6 +63,14 @@ export const loadConfig = (environment: NodeJS.ProcessEnv = process.env): AppCon
     const port = requireEnvironmentValue(environment, ENVIRONMENT_VARIABLES.PORT)
     const requestBodyLimit = requireEnvironmentValue(environment, ENVIRONMENT_VARIABLES.REQUEST_BODY_LIMIT)
     const jwtSecret = requireEnvironmentValue(environment, ENVIRONMENT_VARIABLES.JWT_SECRET)
+    const accessTokenExpiresIn = parsePositiveInteger(
+        requireEnvironmentValue(environment, ENVIRONMENT_VARIABLES.ACCESS_TOKEN_EXPIRES_IN),
+        ENVIRONMENT_VARIABLES.ACCESS_TOKEN_EXPIRES_IN
+    )
+    const refreshTokenExpiresIn = parsePositiveInteger(
+        requireEnvironmentValue(environment, ENVIRONMENT_VARIABLES.REFRESH_TOKEN_EXPIRES_IN),
+        ENVIRONMENT_VARIABLES.REFRESH_TOKEN_EXPIRES_IN
+    )
     const database = loadDatabaseConfig(environment)
     const storage = loadStorageConfig(environment)
 
@@ -66,6 +80,8 @@ export const loadConfig = (environment: NodeJS.ProcessEnv = process.env): AppCon
         port: parsePositiveInteger(port, ENVIRONMENT_VARIABLES.PORT),
         requestBodyLimit: parsePositiveInteger(requestBodyLimit, ENVIRONMENT_VARIABLES.REQUEST_BODY_LIMIT),
         jwtSecret,
+        accessTokenExpiresIn,
+        refreshTokenExpiresIn,
         database,
         storage
     }

@@ -18,6 +18,8 @@ export interface AppConfig {
     port: number
     requestBodyLimit: number
     jwtSecret: string
+    accessTokenExpiresIn: number
+    refreshTokenExpiresIn: number
     database: DatabaseConfig
     storage: StorageConfig
 }

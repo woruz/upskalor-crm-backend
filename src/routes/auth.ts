@@ -2,7 +2,16 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 
 import { AUTH_ROUTES, HTTP_HEADERS, HTTP_METHODS, HTTP_STATUS } from '../common/constants/http.constants.js'
 import type { AppConfig } from '../common/types/config.js'
-import { InvalidCredentialsError, LoginInputError, loginUser, parseLoginRequest } from '../modules/auth/login.js'
+import {
+    InvalidCredentialsError,
+    InvalidRefreshTokenError,
+    LoginInputError,
+    loginUser,
+    parseLoginRequest,
+    parseRefreshTokenRequest,
+    refreshUserSession,
+    revokeRefreshToken
+} from '../modules/auth/login.js'
 import { parseRegistrationRequest, RegistrationInputError, registerCompanyWithOwner } from '../modules/auth/registration.js'
 
 const isUniqueViolation = (error: unknown): boolean => {
@@ -70,6 +79,82 @@ export const handleAuthRoute = async (
     if (request.method === HTTP_METHODS.POST && request.url !== undefined) {
         const url = new URL(request.url, 'http://localhost')
 
+        if (url.pathname === AUTH_ROUTES.REFRESH) {
+            try {
+                const body = await readJsonBody(request, config.requestBodyLimit)
+                const refreshRequest = parseRefreshTokenRequest(body)
+                const refreshed = await refreshUserSession(
+                    refreshRequest.refreshToken,
+                    config.jwtSecret,
+                    config.accessTokenExpiresIn,
+                    config.refreshTokenExpiresIn
+                )
+                sendJson(response, HTTP_STATUS.OK, refreshed, headOnly)
+                return true
+            } catch (error) {
+                if (error instanceof InvalidRefreshTokenError) {
+                    sendError(
+                        response,
+                        HTTP_STATUS.UNAUTHORIZED,
+                        'INVALID_REFRESH_TOKEN',
+                        'The refresh token is invalid or expired',
+                        requestId,
+                        headOnly
+                    )
+                    return true
+                }
+
+                if (
+                    error instanceof LoginInputError ||
+                    (error instanceof Error && (error.message === 'INVALID_JSON' || error.message === 'PAYLOAD_TOO_LARGE'))
+                ) {
+                    const isTooLarge = error.message === 'PAYLOAD_TOO_LARGE'
+                    sendError(
+                        response,
+                        isTooLarge ? HTTP_STATUS.PAYLOAD_TOO_LARGE : HTTP_STATUS.BAD_REQUEST,
+                        error.message,
+                        error.message,
+                        requestId,
+                        headOnly
+                    )
+                    return true
+                }
+
+                writeLog('error', 'Token refresh failed', { error: error instanceof Error ? error.message : String(error), requestId })
+                sendError(response, HTTP_STATUS.INTERNAL_SERVER_ERROR, 'REFRESH_FAILED', 'Token refresh failed', requestId, headOnly)
+                return true
+            }
+        }
+
+        if (url.pathname === AUTH_ROUTES.LOGOUT) {
+            try {
+                const body = await readJsonBody(request, config.requestBodyLimit)
+                await revokeRefreshToken(parseRefreshTokenRequest(body).refreshToken)
+                sendJson(response, HTTP_STATUS.OK, { message: 'Logged out successfully' }, headOnly)
+                return true
+            } catch (error) {
+                if (
+                    error instanceof LoginInputError ||
+                    (error instanceof Error && (error.message === 'INVALID_JSON' || error.message === 'PAYLOAD_TOO_LARGE'))
+                ) {
+                    const isTooLarge = error.message === 'PAYLOAD_TOO_LARGE'
+                    sendError(
+                        response,
+                        isTooLarge ? HTTP_STATUS.PAYLOAD_TOO_LARGE : HTTP_STATUS.BAD_REQUEST,
+                        error.message,
+                        error.message,
+                        requestId,
+                        headOnly
+                    )
+                    return true
+                }
+
+                writeLog('error', 'Logout failed', { error: error instanceof Error ? error.message : String(error), requestId })
+                sendError(response, HTTP_STATUS.INTERNAL_SERVER_ERROR, 'LOGOUT_FAILED', 'Logout failed', requestId, headOnly)
+                return true
+            }
+        }
+
         if (url.pathname === AUTH_ROUTES.REGISTER) {
             try {
                 const body = await readJsonBody(request, config.requestBodyLimit)
@@ -114,7 +199,7 @@ export const handleAuthRoute = async (
         if (url.pathname === AUTH_ROUTES.LOGIN) {
             try {
                 const body = await readJsonBody(request, config.requestBodyLimit)
-                const login = await loginUser(parseLoginRequest(body), config.jwtSecret)
+                const login = await loginUser(parseLoginRequest(body), config.jwtSecret, config.accessTokenExpiresIn, config.refreshTokenExpiresIn)
                 sendJson(response, HTTP_STATUS.OK, login, headOnly)
                 return true
             } catch (error) {

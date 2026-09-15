@@ -34,7 +34,9 @@ export const HEALTH_ROUTES = {
 
 export const AUTH_ROUTES = {
     REGISTER: '/auth/register',
-    LOGIN: '/auth/login'
+    LOGIN: '/auth/login',
+    REFRESH: '/auth/refresh',
+    LOGOUT: '/auth/logout'
 } as const
 
 export const ADMIN_ROUTES = {

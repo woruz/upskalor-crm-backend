@@ -57,11 +57,13 @@ npm run db:migrate    # Apply Drizzle migrations
 npm run prepare       # Install Husky Git hooks
 ```
 
-There are no application defaults. Configure every required value in `.env`: `NODE_ENV`, `HOST`, `PORT`, `REQUEST_BODY_LIMIT`, `DATABASE_URL`, `AWS_REGION`, `S3_BUCKET`, `S3_PRESIGN_EXPIRES_IN`, `MAX_LEAD_IMPORT_FILE_SIZE`, and `MAX_LEAD_EXPORT_ROWS`.
+There are no application defaults. Configure every required value in `.env`: `NODE_ENV`, `HOST`, `PORT`, `REQUEST_BODY_LIMIT`, `JWT_SECRET`, `ACCESS_TOKEN_EXPIRES_IN`, `REFRESH_TOKEN_EXPIRES_IN`, `DATABASE_URL`, `AWS_REGION`, `S3_BUCKET`, `S3_PRESIGN_EXPIRES_IN`, `MAX_LEAD_IMPORT_FILE_SIZE`, and `MAX_LEAD_EXPORT_ROWS`.
 
 `DATABASE_URL` must be a PostgreSQL connection string, for example `postgresql://postgres:password@localhost:5432/upskalor_crm`.
 
 Lead imports and exports use the AWS SDK default credential chain. Set `AWS_REGION` and `S3_BUCKET`, plus positive integer values for the presigned URL lifetime in seconds, maximum import size in bytes, and maximum export row count. AWS credentials must remain server-side and must not be sent to clients.
+
+Authentication uses short-lived JWT access tokens and rotating opaque refresh tokens. `POST /auth/login` returns both tokens. Use `POST /auth/refresh` with `{ "refreshToken": "..." }` to rotate the refresh token and receive a new access token. Use `POST /auth/logout` with the current refresh token to revoke it. Refresh tokens are stored hashed in the root database schema and token reuse revokes the token family.
 
 The server exposes health, authentication, administration, permissions, and lead routes. All lead routes require authentication and company permission checks.
 
