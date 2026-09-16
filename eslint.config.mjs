@@ -6,7 +6,7 @@ import eslintConfigPrettier from 'eslint-config-prettier'
 export default [
     // Ignore build & config files
     {
-        ignores: ['dist', 'node_modules', 'coverage', '*.config.js', '*.config.mjs']
+        ignores: ['dist', 'node_modules', 'coverage', 'drizzle.config.ts', 'drizzle.config.js', 'drizzle.config.js.map', 'drizzle.config.d.ts', 'drizzle.config.d.ts.map', '*.config.js', '*.config.mjs']
     },
 
     // Base JS recommended config
