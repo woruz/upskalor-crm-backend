@@ -46,6 +46,11 @@ This repository operates under strict architectural conventions. Before writing 
    - When installing packages, always use `npm install <pkg> --legacy-peer-deps`.
    - When validating TypeScript, execute `node ./node_modules/typescript/bin/tsc --noEmit` (PowerShell may block `.ps1` files).
 
+8. **BullMQ Background Processing (`src/jobs/`)**:
+   - BullMQ queues and workers require a dedicated Redis connection with `maxRetriesPerRequest: null` via `createBullMqRedisConnection()` from `src/jobs/redis.ts`.
+   - File processing (parsing CSV/Excel from S3, bulk lead inserts) is handled asynchronously via the `lead-import` BullMQ queue.
+   - Workers are initialized in `startServer()` and gracefully drained/closed in `shutdown()`.
+
 ---
 
 ## 2. Quick File Reference
@@ -56,8 +61,10 @@ This repository operates under strict architectural conventions. Before writing 
 - **Database Client & Root Schema**: [src/database/client.ts](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/src/database/client.ts), [src/database/schema.ts](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/src/database/schema.ts)
 - **Tenant Management & DDL**: [src/database/tenants.ts](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/src/database/tenants.ts)
 - **Redis Client & Helpers**: [src/database/redis.ts](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/src/database/redis.ts)
+- **BullMQ Infrastructure**: [src/jobs/index.ts](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/src/jobs/index.ts), [src/jobs/redis.ts](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/src/jobs/redis.ts), [src/jobs/queues/lead-import.queue.ts](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/src/jobs/queues/lead-import.queue.ts), [src/jobs/workers/lead-import.worker.ts](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/src/jobs/workers/lead-import.worker.ts)
 - **Cache Constants**: [src/common/constants/cache.constants.ts](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/src/common/constants/cache.constants.ts)
 - **Auth & RBAC**: [src/middleware/auth.ts](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/src/middleware/auth.ts), [src/middleware/permissions.ts](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/src/middleware/permissions.ts)
-- **Leads Domain**: [src/modules/leads/leads.ts](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/src/modules/leads/leads.ts), [src/routes/leads.ts](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/src/routes/leads.ts)
+- **Leads Domain**: [src/modules/leads/leads.ts](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/src/modules/leads/leads.ts), [src/modules/leads/lead-transfers.ts](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/src/modules/leads/lead-transfers.ts), [src/routes/leads.ts](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/src/routes/leads.ts)
 - **Quotations Domain**: [src/modules/quotations/quotations.ts](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/src/modules/quotations/quotations.ts), [src/routes/quotations.ts](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/src/routes/quotations.ts)
+- **Webhooks Dispatcher**: [src/routes/webhooks.ts](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/src/routes/webhooks.ts)
 - **OpenAPI / Swagger Spec**: [swagger.json](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/swagger.json), [openapi.yaml](file:///c:/Users/ADMIN/Documents/projects/javascript/upskalor-crm-backend/openapi.yaml)

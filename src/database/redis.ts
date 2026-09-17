@@ -7,7 +7,7 @@ import { CACHE_KEYS, CACHE_TTL } from '../common/constants/cache.constants.js'
 
 let _client: Redis | null = null
 
-const getRedisUrl = (): string | undefined => {
+export const getRedisUrl = (): string | undefined => {
     const raw = process.env[ENVIRONMENT_VARIABLES.REDIS_URL]?.trim()
     if (!raw) return undefined
     // Strip the redis-cli prefix in case the env was copy-pasted from Upstash docs

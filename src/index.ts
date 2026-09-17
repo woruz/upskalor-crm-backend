@@ -5,6 +5,7 @@ import { SERVER } from './common/constants/server.constants.js'
 import type { AppConfig } from './common/types/config.js'
 import { loadConfig } from './config/environment.js'
 import { closeRedis } from './database/redis.js'
+import { initWorkers, closeWorkers, closeQueues } from './jobs/index.js'
 import { handleRoute } from './routes/index.js'
 
 export { loadConfig }
@@ -44,7 +45,7 @@ const shutdown = (server: Server, signal: NodeJS.Signals): void => {
     }, SERVER.SHUTDOWN_TIMEOUT_MS)
 
     forceShutdownTimer.unref()
-    server.close((error) => {
+    server.close(async (error) => {
         clearTimeout(forceShutdownTimer)
 
         if (error !== undefined) {
@@ -53,13 +54,18 @@ const shutdown = (server: Server, signal: NodeJS.Signals): void => {
             return
         }
 
-        void closeRedis().catch(() => undefined)
+        await Promise.allSettled([
+            closeWorkers(),
+            closeQueues(),
+            closeRedis()
+        ])
         writeLog('info', 'Server shut down cleanly')
     })
     server.closeIdleConnections()
 }
 
 export const startServer = (config: AppConfig = loadConfig()): Server => {
+    initWorkers(config)
     const server = createHttpServer(config)
 
     server.once('error', (error) => {

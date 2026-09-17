@@ -51,6 +51,13 @@ upskalor-crm-backend/
 │   │   ├── redis.ts              # ioredis client singleton & fault-tolerant cache helpers
 │   │   ├── schema.ts             # Drizzle schema for platform-wide root tables
 │   │   └── tenants.ts            # Dynamic tenant schema provisioning & role permissions
+│   ├── jobs/
+│   │   ├── index.ts                  # BullMQ workers lifecycle & exports
+│   │   ├── redis.ts                  # BullMQ dedicated Redis connection factory (maxRetriesPerRequest: null)
+│   │   ├── queues/
+│   │   │   └── lead-import.queue.ts  # 'lead-import' BullMQ queue & enqueueLeadImportJob
+│   │   └── workers/
+│   │       └── lead-import.worker.ts # BullMQ worker for parsing S3 CSV/XLSX and bulk inserting
 │   ├── middleware/
 │   │   ├── auth.ts               # Bearer JWT extraction and role validation
 │   │   └── permissions.ts        # Fast Redis-cached RBAC permission-set evaluation
@@ -65,7 +72,8 @@ upskalor-crm-backend/
 │       ├── health.ts             # /health (database and system liveness)
 │       ├── leads.ts              # /leads REST endpoints
 │       ├── permissions.ts        # /permissions RBAC endpoints
-│       └── quotations.ts         # /quotations REST endpoints
+│       ├── quotations.ts         # /quotations REST endpoints
+│       └── webhooks.ts           # /webhooks/s3 and /leads/import/webhook S3 upload hooks
 ```
 
 ---
@@ -165,14 +173,24 @@ All Redis helpers (`getCache`, `setCache`, `deleteCache`, `deleteCacheByPattern`
 - `POST /auth/refresh-token`: Rotates refresh token within family.
 - `POST /auth/logout`: Revokes current refresh token family.
 
-### 6.2 Leads Management (`src/modules/leads/`, `src/routes/leads.ts`)
+### 6.2 Leads Management & Asynchronous S3 Imports (`src/modules/leads/`, `src/routes/leads.ts`, `src/jobs/`)
 - **Single CTE Window Query**: `listLeads` uses `count(*) over() as total_count` inside a Common Table Expression to return paginated data and total count in **a single database round-trip** (no N+1 count query).
 - **Lead Executive Assignment**: `verifyExecutive` verifies assignee existence in `root.users` via Drizzle typed query.
 - **Parameterized Updates**: `updateLead` maps fields to safe parameterized `sql` expressions (no `sql.raw(col)`).
 - **Activity & Note Logging**: Automatic insertion into `${qs}.lead_activities` on creation, status change, reassignment.
-- **CSV Bulk Import & Export**:
-  - `POST /leads/import`: Validates CSV rows, inserts valid leads in chunks, and logs rejected rows with line numbers to `${qs}.lead_import_errors`.
-  - `POST /leads/export`: Asynchronous export job tracking in `${qs}.lead_exports`.
+- **Asynchronous File Imports (BullMQ + S3)**:
+  - `POST /leads/import/upload-url`: Generates presigned S3 PUT URL for direct client upload.
+  - `POST /leads/import`: Client confirmation hook after upload; marks status as `QUEUED` and enqueues to BullMQ `lead-import` queue.
+  - `POST /webhooks/s3` and `POST /leads/import/webhook`: Direct S3 Event Notification hook listening for newly uploaded objects (`s3:ObjectCreated:*`), parses object key (`leads/{companyId}/imports/{userId}/{fileId}.{ext}`), and enqueues to BullMQ.
+  - **BullMQ Background Worker (`src/jobs/workers/lead-import.worker.ts`)**:
+    - Streams file directly from S3 (`getObjectStream`).
+    - Parses `.csv` (via `csv-parse`) or `.xlsx` (via `exceljs` stream reader).
+    - Cleans Excel cell values (rich text, formulas, dates).
+    - Validates row inputs and detects duplicate phone numbers (within file and against database).
+    - Inserts valid leads in chunks into `${qs}.leads`.
+    - Writes error CSV report back to S3 if any invalid rows are found and logs to `${qs}.lead_import_errors`.
+    - Updates `${qs}.lead_imports` record with final counts and status (`COMPLETED` or `COMPLETED_WITH_ERRORS`).
+- **CSV/XLSX Export**: Asynchronous export job tracking in `${qs}.lead_exports`.
 
 ### 6.3 Quotations Management (`src/modules/quotations/`, `src/routes/quotations.ts`)
 - **Solar Quote Engine**: Calculates subtotal, GST (e.g. 13.8%), central solar subsidy (PM Surya Ghar / MNRE slab rates), state subsidy caps, and net customer cost.

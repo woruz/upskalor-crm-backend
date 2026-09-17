@@ -11,6 +11,7 @@ import { handleHealthRoute } from './health.js'
 import { handleLeadRoute } from './leads.js'
 import { handlePermissionRoute } from './permissions.js'
 import { handleQuotationRoute } from './quotations.js'
+import { handleWebhookRoute } from './webhooks.js'
 
 const getRequestId = (request: IncomingMessage): string => {
     const suppliedRequestId = request.headers[HTTP_HEADERS.REQUEST_ID]
@@ -102,6 +103,10 @@ export const handleRoute = async (
     }
 
     if (await handleAdminRoute(request, response, config, requestId, headOnly)) {
+        return
+    }
+
+    if (await handleWebhookRoute(request, response, config, requestId, headOnly)) {
         return
     }
 
