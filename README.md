@@ -3,6 +3,8 @@
 Backend API for the Upskalor CRM platform. The project is organized as a modular monolith so each CRM capability can own its routes, validation, services, persistence, and types.
 
 > **Project status:** The repository is currently in the initial scaffolding phase. The module and infrastructure directories are in place, but the application entrypoint and API implementation are still being built.
+>
+> For a detailed technical walkthrough of what has been done and how it is configured, see [PROJECT_OVERVIEW.md](./PROJECT_OVERVIEW.md).
 
 ## Requirements
 
