@@ -1,0 +1,1197 @@
+openapi: 3.0.3
+info:
+  title: Upskalor CRM Backend API
+  version: 1.0.0
+  description: Comprehensive API documentation for Upskalor CRM Backend, including Health Probes, Multi-Tenant Authentication & RBAC, Sales Lead Intake & Transfers, and Solar Quotations Management.
+
+servers:
+  - url: http://localhost:3000
+    description: Local Development Server
+
+tags:
+  - name: Health
+    description: Process health and readiness probes
+  - name: Auth
+    description: Company registration, user authentication, and token management
+  - name: Admin
+    description: Administrative operations, RBAC permissions, and role assignments
+  - name: Leads
+    description: Sales lead intake, status tracking, executive assignment, and activity timeline
+  - name: Lead Transfers
+    description: Bulk lead CSV upload/import with error reporting, and asynchronous CSV/Excel exports
+  - name: Quotations
+    description: Solar project quotation creation, financial summaries, line items, and lifecycle management
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Enter the JWT access token returned by `/auth/login`.
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+            - requestId
+          properties:
+            code:
+              type: string
+              example: BAD_REQUEST
+            message:
+              type: string
+              example: The request payload is invalid
+            requestId:
+              type: string
+              format: uuid
+              example: c62db1e2-6bfb-47e1-a20c-cf1cbaefd652
+
+    PaginationMeta:
+      type: object
+      required:
+        - page
+        - limit
+        - total
+        - totalPages
+      properties:
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 45
+        totalPages:
+          type: integer
+          example: 3
+
+    RegisterCompanyRequest:
+      type: object
+      required:
+        - name
+        - slug
+        - owner
+      properties:
+        name:
+          type: string
+          example: Acme Solar Solutions
+        slug:
+          type: string
+          example: acme-solar
+        owner:
+          type: object
+          required:
+            - email
+            - firstName
+            - lastName
+            - password
+          properties:
+            email:
+              type: string
+              format: email
+              example: owner@acmesolar.com
+            firstName:
+              type: string
+              example: John
+            lastName:
+              type: string
+              example: Doe
+            password:
+              type: string
+              format: password
+              minLength: 8
+              example: P@ssword123
+
+    LoginRequest:
+      type: object
+      required:
+        - companySlug
+        - email
+        - password
+      properties:
+        companySlug:
+          type: string
+          example: acme-solar
+        email:
+          type: string
+          format: email
+          example: owner@acmesolar.com
+        password:
+          type: string
+          format: password
+          example: P@ssword123
+
+    AuthTokensResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        refreshToken:
+          type: string
+          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        tokenType:
+          type: string
+          example: Bearer
+        expiresIn:
+          type: integer
+          example: 900
+        user:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            companyId:
+              type: string
+              format: uuid
+            email:
+              type: string
+              format: email
+            firstName:
+              type: string
+            lastName:
+              type: string
+            role:
+              type: string
+              example: super_admin
+
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
+          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+
+    PermissionAssignmentRequest:
+      type: object
+      required:
+        - roleName
+        - resourceName
+        - actionName
+      properties:
+        roleName:
+          type: string
+          enum: [super_admin, admin, user]
+          example: admin
+        resourceName:
+          type: string
+          enum: [users, contacts, organizations, leads, opportunities, tasks, notes, files, quotations]
+          example: quotations
+        actionName:
+          type: string
+          enum: [create, read, update, delete]
+          example: create
+
+    RoleAssignmentRequest:
+      type: object
+      required:
+        - userId
+        - roleName
+      properties:
+        userId:
+          type: string
+          format: uuid
+          example: 123e4567-e89b-12d3-a456-426614174000
+        roleName:
+          type: string
+          enum: [super_admin, admin, user]
+          example: admin
+
+    Lead:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        customerName:
+          type: string
+          example: Sham Sharma
+        mobileNumber:
+          type: string
+          example: "9876543210"
+        email:
+          type: string
+          format: email
+          nullable: true
+          example: sham@example.com
+        address:
+          type: string
+          nullable: true
+          example: 123 Solar Street, Pune
+        monthlyBillAmount:
+          type: number
+          nullable: true
+          example: 4500.00
+        followUpDate:
+          type: string
+          format: date-time
+          example: "2026-10-02T10:00:00.000Z"
+        state:
+          type: string
+          nullable: true
+          example: maharashtra
+        city:
+          type: string
+          nullable: true
+          example: Pune
+        roofOwnership:
+          type: string
+          nullable: true
+          example: Owned
+        roofType:
+          type: string
+          nullable: true
+          example: Concrete
+        leadSource:
+          type: string
+          nullable: true
+          example: Website
+        assignedExecutive:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          type: string
+          enum: [NEW, CONTACTED, FOLLOW_UP, INTERESTED, NOT_INTERESTED, CONVERTED, LOST]
+          example: NEW
+        createdBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    LeadInput:
+      type: object
+      required:
+        - customerName
+        - mobileNumber
+        - followUpDate
+      properties:
+        customerName:
+          type: string
+          minLength: 2
+          maxLength: 150
+          example: Sham Sharma
+        mobileNumber:
+          type: string
+          pattern: "^[6-9][0-9]{9}$"
+          example: "9876543210"
+        email:
+          type: string
+          format: email
+          nullable: true
+          example: sham@example.com
+        address:
+          type: string
+          maxLength: 500
+          nullable: true
+        monthlyBillAmount:
+          type: number
+          minimum: 0
+          nullable: true
+          example: 4500
+        followUpDate:
+          type: string
+          format: date-time
+          example: "2026-10-02T10:00:00.000Z"
+        state:
+          type: string
+          maxLength: 100
+          nullable: true
+          example: maharashtra
+        city:
+          type: string
+          maxLength: 100
+          nullable: true
+          example: Pune
+        roofOwnership:
+          type: string
+          maxLength: 100
+          nullable: true
+          example: Owned
+        roofType:
+          type: string
+          maxLength: 100
+          nullable: true
+          example: Concrete
+        leadSource:
+          type: string
+          maxLength: 100
+          nullable: true
+          example: Website
+        assignedExecutive:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          type: string
+          enum: [NEW, CONTACTED, FOLLOW_UP, INTERESTED, NOT_INTERESTED, CONVERTED, LOST]
+          default: NEW
+
+    LeadActivity:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        leadId:
+          type: string
+          format: uuid
+        activityType:
+          type: string
+          example: LEAD_CREATED
+        description:
+          type: string
+          example: Lead created
+        oldValue:
+          type: string
+          nullable: true
+        newValue:
+          type: string
+          nullable: true
+        performedBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+
+    QuotationItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        quotationId:
+          type: string
+          format: uuid
+        productId:
+          type: string
+          format: uuid
+          nullable: true
+        name:
+          type: string
+          example: Solar Panel Monocrystalline 540W
+        brand:
+          type: string
+          nullable: true
+          example: Tata Power Solar
+        quantity:
+          type: number
+          example: 10
+        rate:
+          type: number
+          example: 18000
+        gstRate:
+          type: number
+          example: 12
+        total:
+          type: number
+          example: 201600
+        sortOrder:
+          type: integer
+          example: 0
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    QuotationItemInput:
+      type: object
+      required:
+        - name
+        - rate
+      properties:
+        productId:
+          type: string
+          format: uuid
+          nullable: true
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: Solar Panel Monocrystalline 540W
+        brand:
+          type: string
+          maxLength: 150
+          nullable: true
+          example: Tata Power Solar
+        quantity:
+          type: number
+          minimum: 0.01
+          default: 1
+          example: 10
+        rate:
+          type: number
+          minimum: 0
+          example: 18000
+        gstRate:
+          type: number
+          minimum: 0
+          maximum: 100
+          default: 0
+          example: 12
+        total:
+          type: number
+          description: Optional total override; auto-calculated as qty * rate * (1 + gstRate/100) if omitted
+          example: 201600
+        sortOrder:
+          type: integer
+          minimum: 0
+          default: 0
+
+    Quotation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        leadId:
+          type: string
+          format: uuid
+          nullable: true
+        quoteNumber:
+          type: string
+          example: QT-2026-0005
+        systemSizeKw:
+          type: number
+          example: 5.5
+        validityDate:
+          type: string
+          format: date-time
+          example: "2026-10-02T00:00:00.000Z"
+        paymentTermsTemplate:
+          type: string
+          example: Custom Terms
+        advancePercentage:
+          type: number
+          example: 30
+        deliveryPercentage:
+          type: number
+          example: 50
+        commissioningPercentage:
+          type: number
+          example: 20
+        stateSubsidyCapOverride:
+          type: number
+          nullable: true
+          example: 15000
+        leadState:
+          type: string
+          nullable: true
+          example: maharashtra
+        subtotal:
+          type: number
+          example: 225000
+        totalGst:
+          type: number
+          example: 29700
+        grandTotal:
+          type: number
+          example: 254700
+        centralSubsidy:
+          type: number
+          example: 78000
+        stateSubsidy:
+          type: number
+          example: 0
+        netCustomerCost:
+          type: number
+          example: 176700
+        status:
+          type: string
+          enum: [DRAFT, SENT, ACCEPTED, REJECTED, EXPIRED]
+          example: DRAFT
+        notes:
+          type: string
+          nullable: true
+        createdBy:
+          type: string
+          format: uuid
+        lead:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: string
+              format: uuid
+            customerName:
+              type: string
+              example: Sham Sharma
+            mobileNumber:
+              type: string
+              example: "9876543210"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuotationItem"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    QuotationInput:
+      type: object
+      required:
+        - systemSizeKw
+        - validityDate
+      properties:
+        leadId:
+          type: string
+          format: uuid
+          description: Associated sales lead ID
+          example: 123e4567-e89b-12d3-a456-426614174000
+        quoteNumber:
+          type: string
+          description: Optional custom quote number; auto-generated as QT-YYYY-XXXX if omitted
+          example: QT-2026-0005
+        systemSizeKw:
+          type: number
+          minimum: 0.01
+          example: 5.5
+        validityDate:
+          type: string
+          format: date-time
+          example: "2026-10-02T00:00:00.000Z"
+        paymentTermsTemplate:
+          type: string
+          default: Custom Terms
+          example: Custom Terms
+        advancePercentage:
+          type: number
+          minimum: 0
+          maximum: 100
+          default: 30
+          example: 30
+        deliveryPercentage:
+          type: number
+          minimum: 0
+          maximum: 100
+          default: 50
+          example: 50
+        commissioningPercentage:
+          type: number
+          minimum: 0
+          maximum: 100
+          default: 20
+          example: 20
+        stateSubsidyCapOverride:
+          type: number
+          minimum: 0
+          nullable: true
+          example: 15000
+        leadState:
+          type: string
+          nullable: true
+          example: maharashtra
+        centralSubsidy:
+          type: number
+          minimum: 0
+          default: 0
+          example: 78000
+        stateSubsidy:
+          type: number
+          minimum: 0
+          default: 0
+          example: 0
+        status:
+          type: string
+          enum: [DRAFT, SENT, ACCEPTED, REJECTED, EXPIRED]
+          default: DRAFT
+        notes:
+          type: string
+          maxLength: 2000
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuotationItemInput"
+
+paths:
+  /health/live:
+    get:
+      tags: [Health]
+      summary: Liveness Probe
+      responses:
+        200:
+          description: Server is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Readiness Probe
+      responses:
+        200:
+          description: Server is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  checks:
+                    type: object
+                    properties:
+                      application:
+                        type: string
+                        example: up
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register Company with Owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterCompanyRequest"
+      responses:
+        201:
+          description: Company and owner created
+        400:
+          description: Invalid input
+        409:
+          description: Slug or email already in use
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: User Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        200:
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokensResponse"
+        401:
+          description: Invalid credentials
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh Access Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshTokenRequest"
+      responses:
+        200:
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokensResponse"
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshTokenRequest"
+      responses:
+        200:
+          description: Logged out successfully
+
+  /admin/users:
+    get:
+      tags: [Admin]
+      summary: Verify Admin Access
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: Admin access verified
+        401:
+          description: Unauthorized
+        403:
+          description: Forbidden
+
+  /admin/permissions:
+    post:
+      tags: [Admin]
+      summary: Assign / Update Role Permission
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PermissionAssignmentRequest"
+      responses:
+        200:
+          description: Permission updated
+
+  /admin/role-assignments:
+    post:
+      tags: [Admin]
+      summary: Assign User Role
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleAssignmentRequest"
+      responses:
+        200:
+          description: Role assigned
+
+  /leads:
+    get:
+      tags: [Leads]
+      summary: List Leads
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, enum: [NEW, CONTACTED, FOLLOW_UP, INTERESTED, NOT_INTERESTED, CONVERTED, LOST] }
+        - name: assignedExecutive
+          in: query
+          schema: { type: string, format: uuid }
+        - name: leadSource
+          in: query
+          schema: { type: string }
+        - name: state
+          in: query
+          schema: { type: string }
+        - name: city
+          in: query
+          schema: { type: string }
+        - name: followUpDateFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: followUpDateTo
+          in: query
+          schema: { type: string, format: date }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [createdAt, followUpDate, customerName, status], default: createdAt }
+        - name: direction
+          in: query
+          schema: { type: string, enum: [asc, desc], default: desc }
+      responses:
+        200:
+          description: Paginated leads list
+    post:
+      tags: [Leads]
+      summary: Create Lead
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeadInput"
+      responses:
+        201:
+          description: Lead created
+
+  /leads/{id}:
+    get:
+      tags: [Leads]
+      summary: Get Lead by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Lead retrieved
+        404:
+          description: Lead not found
+    patch:
+      tags: [Leads]
+      summary: Update Lead
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: Lead updated
+    delete:
+      tags: [Leads]
+      summary: Delete Lead
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Lead deleted
+
+  /leads/{id}/status:
+    patch:
+      tags: [Leads]
+      summary: Update Lead Status
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [NEW, CONTACTED, FOLLOW_UP, INTERESTED, NOT_INTERESTED, CONVERTED, LOST] }
+      responses:
+        200:
+          description: Status updated
+
+  /leads/{id}/assign:
+    patch:
+      tags: [Leads]
+      summary: Assign Lead Executive
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assignedExecutive]
+              properties:
+                assignedExecutive: { type: string, format: uuid }
+      responses:
+        200:
+          description: Executive assigned
+
+  /leads/{id}/activities:
+    get:
+      tags: [Leads]
+      summary: List Lead Activities
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+      responses:
+        200:
+          description: Activities retrieved
+
+  /leads/import/upload-url:
+    post:
+      tags: [Lead Transfers]
+      summary: Request Import Presigned S3 URL
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: Presigned upload URL generated
+
+  /leads/import:
+    post:
+      tags: [Lead Transfers]
+      summary: Confirm CSV Lead Import
+      security:
+        - bearerAuth: []
+      responses:
+        202:
+          description: Import confirmed
+
+  /leads/import/{importId}:
+    get:
+      tags: [Lead Transfers]
+      summary: Get Import Status
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: importId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Import status
+
+  /leads/import/{importId}/error-report:
+    get:
+      tags: [Lead Transfers]
+      summary: Get Import Error Report Download URL
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: importId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Error report URL
+
+  /leads/export:
+    post:
+      tags: [Lead Transfers]
+      summary: Initiate Leads Export
+      security:
+        - bearerAuth: []
+      responses:
+        202:
+          description: Export initiated
+
+  /leads/export/{exportId}:
+    get:
+      tags: [Lead Transfers]
+      summary: Get Export Status
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: exportId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Export status
+
+  /leads/export/{exportId}/download:
+    get:
+      tags: [Lead Transfers]
+      summary: Get Export Download URL
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: exportId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Presigned download URL
+
+  /quotations:
+    get:
+      tags: [Quotations]
+      summary: List Quotations
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+        - name: search
+          in: query
+          schema: { type: string }
+          description: Searches quote number and lead customer name
+        - name: leadId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { type: string, enum: [DRAFT, SENT, ACCEPTED, REJECTED, EXPIRED] }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [createdAt, validityDate, quoteNumber, systemSizeKw, grandTotal], default: createdAt }
+        - name: direction
+          in: query
+          schema: { type: string, enum: [asc, desc], default: desc }
+      responses:
+        200:
+          description: Paginated quotations list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Quotation"
+                  pagination:
+                    $ref: "#/components/schemas/PaginationMeta"
+
+    post:
+      tags: [Quotations]
+      summary: Create Quotation
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuotationInput"
+      responses:
+        201:
+          description: Quotation created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Quotation"
+        400:
+          description: Validation error or invalid reference
+
+  /quotations/{id}:
+    get:
+      tags: [Quotations]
+      summary: Get Quotation by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Quotation retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Quotation"
+        404:
+          description: Quotation not found
+
+    patch:
+      tags: [Quotations]
+      summary: Update Quotation
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                systemSizeKw: { type: number }
+                validityDate: { type: string, format: date-time }
+                paymentTermsTemplate: { type: string }
+                advancePercentage: { type: number }
+                deliveryPercentage: { type: number }
+                commissioningPercentage: { type: number }
+                stateSubsidyCapOverride: { type: number, nullable: true }
+                centralSubsidy: { type: number }
+                stateSubsidy: { type: number }
+                status: { type: string, enum: [DRAFT, SENT, ACCEPTED, REJECTED, EXPIRED] }
+                notes: { type: string }
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/QuotationItemInput"
+      responses:
+        200:
+          description: Quotation updated
+
+    delete:
+      tags: [Quotations]
+      summary: Delete Quotation
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Quotation deleted
+        404:
+          description: Quotation not found

@@ -49,5 +49,9 @@ export const LEAD_ROUTES = {
     COLLECTION: '/leads'
 } as const
 
+export const QUOTATION_ROUTES = {
+    COLLECTION: '/quotations'
+} as const
+
 export const DEFAULT_URL_BASE = 'http://localhost'
 export const MAX_REQUEST_ID_LENGTH = 128

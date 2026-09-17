@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 
 import { DEFAULT_URL_BASE, HTTP_HEADERS, HTTP_METHODS, HTTP_STATUS, MAX_REQUEST_ID_LENGTH } from '../common/constants/http.constants.js'
 import type { AppConfig } from '../common/types/config.js'
@@ -9,6 +10,7 @@ import { handleAuthRoute } from './auth.js'
 import { handleHealthRoute } from './health.js'
 import { handleLeadRoute } from './leads.js'
 import { handlePermissionRoute } from './permissions.js'
+import { handleQuotationRoute } from './quotations.js'
 
 const getRequestId = (request: IncomingMessage): string => {
     const suppliedRequestId = request.headers[HTTP_HEADERS.REQUEST_ID]
@@ -107,7 +109,76 @@ export const handleRoute = async (
         return
     }
 
+    if ((pathname === '/docs' || pathname === '/api-docs') && (request.method === HTTP_METHODS.GET || request.method === HTTP_METHODS.HEAD)) {
+        const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Upskalor CRM API Docs</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+  <style>
+    body { margin: 0; background: #fafafa; }
+    .topbar { display: none; }
+  </style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js" crossorigin></script>
+  <script>
+    window.onload = () => {
+      window.ui = SwaggerUIBundle({
+        url: '/swagger.json',
+        dom_id: '#swagger-ui',
+        deepLinking: true,
+        presets: [
+          SwaggerUIBundle.presets.apis,
+          SwaggerUIBundle.SwaggerUIStandalonePreset
+        ],
+        layout: "BaseLayout"
+      });
+    };
+  </script>
+</body>
+</html>`
+        response.statusCode = HTTP_STATUS.OK
+        response.setHeader(HTTP_HEADERS.CONTENT_TYPE, 'text/html; charset=utf-8')
+        response.setHeader(HTTP_HEADERS.CONTENT_LENGTH, Buffer.byteLength(html))
+        if (headOnly) {
+            response.end()
+            return
+        }
+        response.end(html)
+        return
+    }
+
+    if (
+        (pathname === '/swagger.json' || pathname === '/openapi.json' || pathname === '/openapi.yaml') &&
+        (request.method === HTTP_METHODS.GET || request.method === HTTP_METHODS.HEAD)
+    ) {
+        try {
+            const isYaml = pathname === '/openapi.yaml'
+            const filePath = new URL(isYaml ? '../../openapi.yaml' : '../../swagger.json', import.meta.url)
+            const content = await readFile(filePath, 'utf8')
+            response.statusCode = HTTP_STATUS.OK
+            response.setHeader(HTTP_HEADERS.CONTENT_TYPE, isYaml ? 'text/yaml; charset=utf-8' : 'application/json; charset=utf-8')
+            response.setHeader(HTTP_HEADERS.CONTENT_LENGTH, Buffer.byteLength(content))
+            if (headOnly) {
+                response.end()
+                return
+            }
+            response.end(content)
+            return
+        } catch {
+            // fall through to standard route handling
+        }
+    }
+
     if (await handleLeadRoute(request, response, config, requestId, headOnly)) {
+        return
+    }
+
+    if (await handleQuotationRoute(request, response, config, requestId, headOnly)) {
         return
     }
 

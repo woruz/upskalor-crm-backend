@@ -73,6 +73,7 @@ export const loadConfig = (environment: NodeJS.ProcessEnv = process.env): AppCon
     )
     const database = loadDatabaseConfig(environment)
     const storage = loadStorageConfig(environment)
+    const redisUrl = environment[ENVIRONMENT_VARIABLES.REDIS_URL]?.trim() || undefined
 
     return {
         environment: parseEnvironment(nodeEnvironment),
@@ -83,7 +84,8 @@ export const loadConfig = (environment: NodeJS.ProcessEnv = process.env): AppCon
         accessTokenExpiresIn,
         refreshTokenExpiresIn,
         database,
-        storage
+        storage,
+        redisUrl
     }
 }
 

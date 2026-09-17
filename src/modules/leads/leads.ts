@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
 
-import { sql, type SQL } from 'drizzle-orm'
+import { eq, and, sql, type SQL } from 'drizzle-orm'
 
 import { database } from '../../database/client.js'
+import { users } from '../../database/schema.js'
 import { ensureCompanyLeadTables } from '../../database/tenants.js'
 
 export const LEAD_STATUSES = ['NEW', 'CONTACTED', 'FOLLOW_UP', 'INTERESTED', 'NOT_INTERESTED', 'CONVERTED', 'LOST'] as const
@@ -73,6 +74,10 @@ interface LeadRow {
     created_at: Date | string
     updated_at: Date | string
     deleted_at: Date | string | null
+}
+
+interface LeadWithCount extends LeadRow {
+    _total_count: string | number
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -201,7 +206,7 @@ export const parseLeadFilters = (url: URL): LeadFilters => {
     const numberParam = (name: string, fallback: number): number => {
         const value = Number(url.searchParams.get(name) ?? fallback)
         if (!Number.isSafeInteger(value) || value < 1) {
-            throw new LeadInputError(`${name} is invalid`)
+            throw new LeadInputError(`${name} must be a positive integer`)
         }
         return value
     }
@@ -271,17 +276,44 @@ const toLead = (row: LeadRow): Record<string, unknown> => ({
     updatedAt: new Date(row.updated_at).toISOString()
 })
 
-const leadTable = (schemaName: string): SQL => sql.raw(`${schemaName}.leads`)
-const activityTable = (schemaName: string): SQL => sql.raw(`${schemaName}.lead_activities`)
+const leadTable = (schemaName: string): SQL => sql.raw(`"${schemaName}".leads`)
+const activityTable = (schemaName: string): SQL => sql.raw(`"${schemaName}".lead_activities`)
 
+/**
+ * Verifies that a user exists within the company and is active.
+ * Uses Drizzle typed query on the root.users table (no raw SQL).
+ */
 const verifyExecutive = async (companyId: string, executiveId: string): Promise<void> => {
-    const { rows } = await database.execute(
-        sql`select id from root.users where id = ${executiveId} and company_id = ${companyId} and is_active = true limit 1`
-    )
-    const user = rows[0]
+    const [user] = await database
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.id, executiveId), eq(users.companyId, companyId), eq(users.isActive, true)))
+        .limit(1)
+
     if (user === undefined) {
         throw new LeadReferenceError('assignedExecutive is invalid')
     }
+}
+
+const buildWhereConditions = (schemaName: string, filters: LeadFilters): SQL[] => {
+    const table = leadTable(schemaName)
+    const conditions: SQL[] = [sql`${table}.deleted_at is null`]
+
+    if (filters.search) {
+        conditions.push(
+            sql`(${table}.customer_name ilike ${`%${filters.search}%`} or ${table}.mobile_number ilike ${`%${filters.search}%`} or ${table}.email ilike ${`%${filters.search}%`})`
+        )
+    }
+    if (filters.status) conditions.push(sql`${table}.status = ${filters.status}`)
+    if (filters.assignedExecutive) conditions.push(sql`${table}.assigned_executive = ${filters.assignedExecutive}`)
+    if (filters.leadSource) conditions.push(sql`${table}.lead_source = ${filters.leadSource}`)
+    if (filters.state) conditions.push(sql`${table}.state = ${filters.state}`)
+    if (filters.city) conditions.push(sql`${table}.city = ${filters.city}`)
+    if (filters.followUpDate) conditions.push(sql`date(${table}.follow_up_date) = date(${filters.followUpDate})`)
+    if (filters.followUpDateFrom) conditions.push(sql`${table}.follow_up_date >= ${filters.followUpDateFrom}`)
+    if (filters.followUpDateTo) conditions.push(sql`${table}.follow_up_date <= ${filters.followUpDateTo}`)
+
+    return conditions
 }
 
 export const createLead = async (companyId: string, userId: string, input: LeadInput): Promise<Record<string, unknown>> => {
@@ -290,8 +322,11 @@ export const createLead = async (companyId: string, userId: string, input: LeadI
         await verifyExecutive(companyId, input.assignedExecutive)
     }
     const id = randomUUID()
+    const table = leadTable(schemaName)
+    const aTable = activityTable(schemaName)
+
     const { rows: createRows } = await database.execute(sql`
-        insert into ${leadTable(schemaName)}
+        insert into ${table}
         (id, customer_name, mobile_number, email, address, monthly_bill_amount, follow_up_date, state, city, roof_ownership, roof_type, lead_source, assigned_executive, status, created_by)
         values (${id}, ${input.customerName}, ${input.mobileNumber}, ${input.email ?? null}, ${input.address ?? null}, ${input.monthlyBillAmount ?? null}, ${input.followUpDate}, ${input.state ?? null}, ${input.city ?? null}, ${input.roofOwnership ?? null}, ${input.roofType ?? null}, ${input.leadSource ?? null}, ${input.assignedExecutive ?? null}, ${input.status}, ${userId}) returning *
     `)
@@ -300,66 +335,53 @@ export const createLead = async (companyId: string, userId: string, input: LeadI
         throw new Error('Lead creation failed')
     }
     await database.execute(
-        sql`insert into ${activityTable(schemaName)} (lead_id, activity_type, description, performed_by) values (${id}, ${LEAD_ACTIVITY_TYPES.CREATED}, 'Lead created', ${userId})`
+        sql`insert into ${aTable} (lead_id, activity_type, description, performed_by) values (${id}, ${LEAD_ACTIVITY_TYPES.CREATED}, 'Lead created', ${userId})`
     )
     return toLead(row)
 }
 
-const baseConditions = (table: ReturnType<typeof leadTable>, companyId: string, filters: LeadFilters): SQL[] => {
-    const conditions: SQL[] = [sql`${table}.deleted_at is null`]
-    if (filters.search) {
-        conditions.push(
-            sql`(${table}.customer_name ilike ${`%${filters.search}%`} or ${table}.mobile_number ilike ${`%${filters.search}%`} or ${table}.email ilike ${`%${filters.search}%`})`
-        )
-    }
-    if (filters.status) {
-        conditions.push(sql`${table}.status = ${filters.status}`)
-    }
-    if (filters.assignedExecutive) {
-        conditions.push(sql`${table}.assigned_executive = ${filters.assignedExecutive}`)
-    }
-    if (filters.leadSource) {
-        conditions.push(sql`${table}.lead_source = ${filters.leadSource}`)
-    }
-    if (filters.state) {
-        conditions.push(sql`${table}.state = ${filters.state}`)
-    }
-    if (filters.city) {
-        conditions.push(sql`${table}.city = ${filters.city}`)
-    }
-    if (filters.followUpDate) {
-        conditions.push(sql`date(${table}.follow_up_date) = date(${filters.followUpDate})`)
-    }
-    if (filters.followUpDateFrom) {
-        conditions.push(sql`${table}.follow_up_date >= ${filters.followUpDateFrom}`)
-    }
-    if (filters.followUpDateTo) {
-        conditions.push(sql`${table}.follow_up_date <= ${filters.followUpDateTo}`)
-    }
-    void companyId
-    return conditions
-}
-
 export const listLeads = async (companyId: string, filters: LeadFilters): Promise<{ data: Record<string, unknown>[]; total: number }> => {
     const schemaName = await ensureCompanyLeadTables(companyId)
-    const table = leadTable(schemaName)
-    const conditions = baseConditions(table, companyId, filters)
+    const conditions = buildWhereConditions(schemaName, filters)
     const where = sql.join(conditions, sql` and `)
-    const sortColumns = { createdAt: 'created_at', followUpDate: 'follow_up_date', customerName: 'customer_name', status: 'status' } as const
-    const order = sql.raw(`${sortColumns[filters.sort]} ${filters.direction === 'asc' ? 'asc' : 'desc'}`)
+
+    const sortColumns = {
+        createdAt: 'created_at',
+        followUpDate: 'follow_up_date',
+        customerName: 'customer_name',
+        status: 'status'
+    } as const
+    // Safe: sortColumns keys are statically constrained by LeadFilters['sort'] type
+    const orderCol = sortColumns[filters.sort]
+    const orderDir = filters.direction === 'asc' ? 'asc' : 'desc'
+    const order = sql.raw(`${orderCol} ${orderDir}`)
     const offset = (filters.page - 1) * filters.limit
-    const { rows: countRows } = await database.execute(sql`select count(*)::int as total from ${table} where ${where}`)
-    const { rows } = await database.execute(sql`select * from ${table} where ${where} order by ${order} limit ${filters.limit} offset ${offset}`)
-    const countRow = countRows[0] as unknown as { total: number } | undefined
-    return { data: (rows as unknown as LeadRow[]).map(toLead), total: countRow?.total ?? 0 }
+    const table = leadTable(schemaName)
+
+    // Single query with CTE — eliminates the separate count round-trip
+    const { rows } = await database.execute(sql`
+        with filtered as (
+            select *, count(*) over() as _total_count
+            from ${table}
+            where ${where}
+        )
+        select * from filtered
+        order by ${order}
+        limit ${filters.limit} offset ${offset}
+    `)
+
+    const typedRows = rows as unknown as LeadWithCount[]
+    const total = typedRows[0] !== undefined ? Number(typedRows[0]._total_count) : 0
+
+    return { data: typedRows.map(toLead), total }
 }
 
 export const queryLeadsForExport = async (companyId: string, filters: LeadFilters, maxRows: number): Promise<Record<string, unknown>[]> => {
     const schemaName = await ensureCompanyLeadTables(companyId)
-    const table = leadTable(schemaName)
-    const where = sql.join(baseConditions(table, companyId, filters), sql` and `)
+    const where = sql.join(buildWhereConditions(schemaName, filters), sql` and `)
     const sortColumns = { createdAt: 'created_at', followUpDate: 'follow_up_date', customerName: 'customer_name', status: 'status' } as const
     const order = sql.raw(`${sortColumns[filters.sort]} ${filters.direction === 'asc' ? 'asc' : 'desc'}`)
+    const table = leadTable(schemaName)
     const { rows } = await database.execute(sql`select * from ${table} where ${where} order by ${order} limit ${maxRows}`)
     return (rows as unknown as LeadRow[]).map(toLead)
 }
@@ -367,7 +389,8 @@ export const queryLeadsForExport = async (companyId: string, filters: LeadFilter
 export const getLead = async (companyId: string, id: string): Promise<Record<string, unknown>> => {
     parseUuid(id, 'id')
     const schemaName = await ensureCompanyLeadTables(companyId)
-    const { rows } = await database.execute(sql`select * from ${leadTable(schemaName)} where id = ${id} and deleted_at is null`)
+    const table = leadTable(schemaName)
+    const { rows } = await database.execute(sql`select * from ${table} where id = ${id} and deleted_at is null`)
     const row = rows[0] as unknown as LeadRow | undefined
     if (row === undefined) {
         throw new LeadNotFoundError('Lead not found')
@@ -381,41 +404,41 @@ export const updateLead = async (companyId: string, userId: string, id: string, 
     if (input.assignedExecutive) {
         await verifyExecutive(companyId, input.assignedExecutive)
     }
-    const columns: Record<string, unknown> = {}
-    const mapping: Array<[keyof LeadInput, string]> = [
-        ['customerName', 'customer_name'],
-        ['mobileNumber', 'mobile_number'],
-        ['email', 'email'],
-        ['address', 'address'],
-        ['monthlyBillAmount', 'monthly_bill_amount'],
-        ['followUpDate', 'follow_up_date'],
-        ['state', 'state'],
-        ['city', 'city'],
-        ['roofOwnership', 'roof_ownership'],
-        ['roofType', 'roof_type'],
-        ['leadSource', 'lead_source'],
-        ['assignedExecutive', 'assigned_executive'],
-        ['status', 'status']
-    ]
-    for (const [key, column] of mapping) {
-        if (key in input) {
-            columns[column] = input[key] ?? null
-        }
-    }
-    if (Object.keys(columns).length === 0) {
+
+    // Build explicit update fields — no sql.raw(column) injection risk
+    const updateFields: SQL[] = [sql`updated_at = now()`]
+    if ('customerName' in input) updateFields.push(sql`customer_name = ${input.customerName ?? null}`)
+    if ('mobileNumber' in input) updateFields.push(sql`mobile_number = ${input.mobileNumber ?? null}`)
+    if ('email' in input) updateFields.push(sql`email = ${input.email ?? null}`)
+    if ('address' in input) updateFields.push(sql`address = ${input.address ?? null}`)
+    if ('monthlyBillAmount' in input) updateFields.push(sql`monthly_bill_amount = ${input.monthlyBillAmount ?? null}`)
+    if ('followUpDate' in input) updateFields.push(sql`follow_up_date = ${input.followUpDate ?? null}`)
+    if ('state' in input) updateFields.push(sql`state = ${input.state ?? null}`)
+    if ('city' in input) updateFields.push(sql`city = ${input.city ?? null}`)
+    if ('roofOwnership' in input) updateFields.push(sql`roof_ownership = ${input.roofOwnership ?? null}`)
+    if ('roofType' in input) updateFields.push(sql`roof_type = ${input.roofType ?? null}`)
+    if ('leadSource' in input) updateFields.push(sql`lead_source = ${input.leadSource ?? null}`)
+    if ('assignedExecutive' in input) updateFields.push(sql`assigned_executive = ${input.assignedExecutive ?? null}`)
+    if ('status' in input) updateFields.push(sql`status = ${input.status ?? null}`)
+
+    if (updateFields.length === 1) {
+        // Only updated_at — no real fields to update
         throw new LeadInputError('No fields to update')
     }
-    const assignments = Object.entries(columns).map(([column, value]) => sql`${sql.raw(column)} = ${value}`)
-    assignments.push(sql`updated_at = now()`)
+
+    const table = leadTable(schemaName)
+    const aTable = activityTable(schemaName)
+    const setClause = sql.join(updateFields, sql`, `)
+
     const { rows } = await database.execute(
-        sql`update ${leadTable(schemaName)} set ${sql.join(assignments, sql`, `)} where id = ${id} and deleted_at is null returning *`
+        sql`update ${table} set ${setClause} where id = ${id} and deleted_at is null returning *`
     )
     const row = rows[0] as unknown as LeadRow | undefined
     if (row === undefined) {
         throw new LeadNotFoundError('Lead not found')
     }
     await database.execute(
-        sql`insert into ${activityTable(schemaName)} (lead_id, activity_type, description, performed_by) values (${id}, ${LEAD_ACTIVITY_TYPES.UPDATED}, 'Lead updated', ${userId})`
+        sql`insert into ${aTable} (lead_id, activity_type, description, performed_by) values (${id}, ${LEAD_ACTIVITY_TYPES.UPDATED}, 'Lead updated', ${userId})`
     )
     return toLead(row)
 }
@@ -423,15 +446,17 @@ export const updateLead = async (companyId: string, userId: string, id: string, 
 export const updateLeadStatus = async (companyId: string, userId: string, id: string, status: LeadStatus): Promise<Record<string, unknown>> => {
     parseUuid(id, 'id')
     const schemaName = await ensureCompanyLeadTables(companyId)
+    const table = leadTable(schemaName)
+    const aTable = activityTable(schemaName)
     const { rows } = await database.execute(
-        sql`update ${leadTable(schemaName)} set status = ${status}, updated_at = now() where id = ${id} and deleted_at is null returning *`
+        sql`update ${table} set status = ${status}, updated_at = now() where id = ${id} and deleted_at is null returning *`
     )
     const row = rows[0] as unknown as LeadRow | undefined
     if (row === undefined) {
         throw new LeadNotFoundError('Lead not found')
     }
     await database.execute(
-        sql`insert into ${activityTable(schemaName)} (lead_id, activity_type, new_value, performed_by) values (${id}, ${LEAD_ACTIVITY_TYPES.STATUS_CHANGED}, ${status}, ${userId})`
+        sql`insert into ${aTable} (lead_id, activity_type, new_value, performed_by) values (${id}, ${LEAD_ACTIVITY_TYPES.STATUS_CHANGED}, ${status}, ${userId})`
     )
     return toLead(row)
 }
@@ -448,15 +473,17 @@ export const assignLead = async (
         await verifyExecutive(companyId, assignedExecutive)
     }
     const schemaName = await ensureCompanyLeadTables(companyId)
+    const table = leadTable(schemaName)
+    const aTable = activityTable(schemaName)
     const { rows } = await database.execute(
-        sql`update ${leadTable(schemaName)} set assigned_executive = ${assignedExecutive ?? null}, updated_at = now() where id = ${id} and deleted_at is null returning *`
+        sql`update ${table} set assigned_executive = ${assignedExecutive ?? null}, updated_at = now() where id = ${id} and deleted_at is null returning *`
     )
     const row = rows[0] as unknown as LeadRow | undefined
     if (row === undefined) {
         throw new LeadNotFoundError('Lead not found')
     }
     await database.execute(
-        sql`insert into ${activityTable(schemaName)} (lead_id, activity_type, new_value, performed_by) values (${id}, ${assignedExecutive ? LEAD_ACTIVITY_TYPES.ASSIGNED : LEAD_ACTIVITY_TYPES.REASSIGNED}, ${assignedExecutive ?? null}, ${userId})`
+        sql`insert into ${aTable} (lead_id, activity_type, new_value, performed_by) values (${id}, ${assignedExecutive ? LEAD_ACTIVITY_TYPES.ASSIGNED : LEAD_ACTIVITY_TYPES.REASSIGNED}, ${assignedExecutive ?? null}, ${userId})`
     )
     return toLead(row)
 }
@@ -464,25 +491,44 @@ export const assignLead = async (
 export const deleteLead = async (companyId: string, userId: string, id: string): Promise<void> => {
     parseUuid(id, 'id')
     const schemaName = await ensureCompanyLeadTables(companyId)
+    const table = leadTable(schemaName)
+    const aTable = activityTable(schemaName)
     const result = await database.execute(
-        sql`update ${leadTable(schemaName)} set deleted_at = now(), updated_at = now() where id = ${id} and deleted_at is null`
+        sql`update ${table} set deleted_at = now(), updated_at = now() where id = ${id} and deleted_at is null`
     )
     if (Number(result.rowCount) === 0) {
         throw new LeadNotFoundError('Lead not found')
     }
     await database.execute(
-        sql`insert into ${activityTable(schemaName)} (lead_id, activity_type, performed_by) values (${id}, ${LEAD_ACTIVITY_TYPES.DELETED}, ${userId})`
+        sql`insert into ${aTable} (lead_id, activity_type, performed_by) values (${id}, ${LEAD_ACTIVITY_TYPES.DELETED}, ${userId})`
     )
 }
 
-export const listActivities = async (companyId: string, leadId: string, page: number, limit: number): Promise<{ data: unknown[]; total: number }> => {
+export const listActivities = async (
+    companyId: string,
+    leadId: string,
+    page: number,
+    limit: number
+): Promise<{ data: unknown[]; total: number }> => {
     parseUuid(leadId, 'id')
     const schemaName = await ensureCompanyLeadTables(companyId)
     const table = activityTable(schemaName)
-    const { rows: countRows } = await database.execute(sql`select count(*)::int as total from ${table} where lead_id = ${leadId}`)
-    const count = countRows[0] as unknown as { total: number } | undefined
-    const { rows } = await database.execute(
-        sql`select * from ${table} where lead_id = ${leadId} order by created_at desc limit ${limit} offset ${(page - 1) * limit}`
-    )
-    return { data: rows as unknown[], total: count?.total ?? 0 }
+    const offset = (page - 1) * limit
+
+    // Single CTE query — eliminates separate count round-trip
+    const { rows } = await database.execute(sql`
+        with filtered as (
+            select *, count(*) over() as _total_count
+            from ${table}
+            where lead_id = ${leadId}
+        )
+        select * from filtered
+        order by created_at desc
+        limit ${limit} offset ${offset}
+    `)
+
+    const typedRows = rows as unknown as Array<{ _total_count: string | number }>
+    const total = typedRows[0] !== undefined ? Number(typedRows[0]._total_count) : 0
+
+    return { data: rows as unknown[], total }
 }

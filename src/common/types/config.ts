@@ -22,5 +22,6 @@ export interface AppConfig {
     refreshTokenExpiresIn: number
     database: DatabaseConfig
     storage: StorageConfig
+    redisUrl?: string | undefined
 }
 
