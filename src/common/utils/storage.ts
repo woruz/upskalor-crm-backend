@@ -4,7 +4,18 @@ import type { Readable } from 'node:stream'
 
 import type { StorageConfig } from '../types/config.js'
 
-export const createStorageClient = (config: StorageConfig): S3Client => new S3Client({ region: config.region })
+export const createStorageClient = (config: StorageConfig): S3Client =>
+    new S3Client({
+        region: config.region,
+        ...(config.accessKeyId && config.secretAccessKey
+            ? {
+                  credentials: {
+                      accessKeyId: config.accessKeyId,
+                      secretAccessKey: config.secretAccessKey
+                  }
+              }
+            : {})
+    })
 
 export const createUploadUrl = async (
     client: S3Client,
