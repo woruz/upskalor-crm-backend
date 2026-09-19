@@ -10,6 +10,8 @@ export interface StorageConfig {
     presignExpiresIn: number
     maxLeadImportFileSize: number
     maxLeadExportRows: number
+    accessKeyId?: string | undefined
+    secretAccessKey?: string | undefined
 }
 
 export interface AppConfig {
@@ -22,5 +24,6 @@ export interface AppConfig {
     refreshTokenExpiresIn: number
     database: DatabaseConfig
     storage: StorageConfig
+    redisUrl?: string | undefined
 }
 

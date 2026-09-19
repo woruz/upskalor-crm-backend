@@ -18,8 +18,23 @@ const sendJson = (response: ServerResponse, statusCode: number, body: unknown, h
     response.end(payload)
 }
 
-const sendError = (response: ServerResponse, statusCode: number, code: string, message: string, requestId: string, headOnly = false): void => {
-    const payload = JSON.stringify({ error: { code, message, requestId } })
+const sendError = (
+    response: ServerResponse,
+    statusCode: number,
+    code: string,
+    message: string,
+    requestId: string,
+    headOnly = false,
+    details?: unknown
+): void => {
+    const payload = JSON.stringify({
+        error: {
+            code,
+            message,
+            details: details ?? message,
+            requestId
+        }
+    })
     response.statusCode = statusCode
     response.setHeader(HTTP_HEADERS.CONTENT_LENGTH, Buffer.byteLength(payload))
 

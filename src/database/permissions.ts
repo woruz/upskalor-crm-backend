@@ -13,7 +13,8 @@ export const RESOURCE_DEFINITIONS = [
     { name: 'opportunities', description: 'Sales opportunity records' },
     { name: 'tasks', description: 'Task records' },
     { name: 'notes', description: 'Notes and comments' },
-    { name: 'files', description: 'File entities' }
+    { name: 'files', description: 'File entities' },
+    { name: 'quotations', description: 'Quotation records' }
 ] as const
 
 export type ActionName = (typeof ACTION_DEFINITIONS)[number]['name']

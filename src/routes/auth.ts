@@ -53,16 +53,32 @@ const sendJson = (response: ServerResponse, statusCode: number, body: unknown, h
     response.end(payload)
 }
 
-const sendError = (response: ServerResponse, statusCode: number, code: string, message: string, requestId: string, headOnly = false): void => {
+const sendError = (
+    response: ServerResponse,
+    statusCode: number,
+    code: string,
+    message: string,
+    requestId: string,
+    headOnly = false,
+    details?: unknown
+): void => {
+    const payload = JSON.stringify({
+        error: {
+            code,
+            message,
+            details: details ?? message,
+            requestId
+        }
+    })
     response.statusCode = statusCode
-    response.setHeader(HTTP_HEADERS.CONTENT_LENGTH, Buffer.byteLength(JSON.stringify({ error: { code, message, requestId } })))
+    response.setHeader(HTTP_HEADERS.CONTENT_LENGTH, Buffer.byteLength(payload))
 
     if (headOnly) {
         response.end()
         return
     }
 
-    response.end(JSON.stringify({ error: { code, message, requestId } }))
+    response.end(payload)
 }
 
 const writeLog = (level: 'info' | 'error' | 'warn', message: string, metadata: Record<string, unknown> = {}): void => {
@@ -120,8 +136,9 @@ export const handleAuthRoute = async (
                     return true
                 }
 
-                writeLog('error', 'Token refresh failed', { error: error instanceof Error ? error.message : String(error), requestId })
-                sendError(response, HTTP_STATUS.INTERNAL_SERVER_ERROR, 'REFRESH_FAILED', 'Token refresh failed', requestId, headOnly)
+                const errDetails = error instanceof Error ? error.message : String(error)
+                writeLog('error', 'Token refresh failed', { error: errDetails, requestId })
+                sendError(response, HTTP_STATUS.INTERNAL_SERVER_ERROR, 'REFRESH_FAILED', 'Token refresh failed', requestId, headOnly, errDetails)
                 return true
             }
         }
@@ -149,8 +166,9 @@ export const handleAuthRoute = async (
                     return true
                 }
 
-                writeLog('error', 'Logout failed', { error: error instanceof Error ? error.message : String(error), requestId })
-                sendError(response, HTTP_STATUS.INTERNAL_SERVER_ERROR, 'LOGOUT_FAILED', 'Logout failed', requestId, headOnly)
+                const errDetails = error instanceof Error ? error.message : String(error)
+                writeLog('error', 'Logout failed', { error: errDetails, requestId })
+                sendError(response, HTTP_STATUS.INTERNAL_SERVER_ERROR, 'LOGOUT_FAILED', 'Logout failed', requestId, headOnly, errDetails)
                 return true
             }
         }
@@ -190,8 +208,9 @@ export const handleAuthRoute = async (
                     return true
                 }
 
-                writeLog('error', 'Company registration failed', { error: error instanceof Error ? error.message : String(error), requestId })
-                sendError(response, 500, 'REGISTRATION_FAILED', 'Company registration failed', requestId, headOnly)
+                const errDetails = error instanceof Error ? error.message : String(error)
+                writeLog('error', 'Company registration failed', { error: errDetails, requestId })
+                sendError(response, 500, 'REGISTRATION_FAILED', 'Company registration failed', requestId, headOnly, errDetails)
                 return true
             }
         }
@@ -224,8 +243,9 @@ export const handleAuthRoute = async (
                     return true
                 }
 
-                writeLog('error', 'User login failed', { error: error instanceof Error ? error.message : String(error), requestId })
-                sendError(response, 500, 'LOGIN_FAILED', 'User login failed', requestId, headOnly)
+                const errDetails = error instanceof Error ? error.message : String(error)
+                writeLog('error', 'User login failed', { error: errDetails, requestId })
+                sendError(response, 500, 'LOGIN_FAILED', 'User login failed', requestId, headOnly, errDetails)
                 return true
             }
         }

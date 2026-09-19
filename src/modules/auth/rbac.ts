@@ -6,7 +6,7 @@ export const ROLE_NAMES = {
     USER: 'user'
 } as const
 
-export type RoleName = (typeof ROLE_NAMES)[keyof typeof ROLE_NAMES]
+export type RoleName = (typeof ROLE_NAMES)[keyof typeof ROLE_NAMES] | string
 
 export interface AuthTokenPayload extends JwtPayload {
     id: string
@@ -20,6 +20,10 @@ export const hasRole = (payload: Partial<AuthTokenPayload>, required: RoleName |
     const allowedRoles = Array.isArray(required) ? required : [required]
     const userRole = payload.role
 
+    if (userRole === ROLE_NAMES.SUPER_ADMIN) {
+        return true
+    }
+
     return userRole !== undefined && allowedRoles.includes(userRole)
 }
 
@@ -30,7 +34,7 @@ export const verifyToken = (token: string, secret: string): AuthTokenPayload => 
         throw new Error('Token missing user id')
     }
 
-    if (typeof decoded.role !== 'string' || !Object.values(ROLE_NAMES).includes(decoded.role as RoleName)) {
+    if (typeof decoded.role !== 'string' || decoded.role.trim() === '') {
         throw new Error('Token missing valid role')
     }
 
@@ -70,4 +74,3 @@ export const requireRole = (token: string, secret: string, allowedRoles: RoleNam
 
     return payload
 }
-

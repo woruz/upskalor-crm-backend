@@ -12,9 +12,9 @@ const PASSWORD_HASH_LENGTH = 32
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export interface LoginRequest {
-    companySlug: string
     email: string
     password: string
+    companySlug?: string | undefined
 }
 
 export interface LoginResponse {
@@ -66,13 +66,8 @@ export const parseLoginRequest = (body: unknown): LoginRequest => {
     }
 
     const payload = body as Record<string, unknown>
-    const companySlug = getString(payload['companySlug'], 'companySlug', 100).toLowerCase()
     const email = getString(payload['email'], 'email', 320).toLowerCase()
     const password = getString(payload['password'], 'password', 200)
-
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(companySlug)) {
-        throw new LoginInputError('companySlug is invalid')
-    }
 
     if (!EMAIL_PATTERN.test(email)) {
         throw new LoginInputError('email is invalid')
@@ -82,10 +77,24 @@ export const parseLoginRequest = (body: unknown): LoginRequest => {
         throw new LoginInputError('password must be at least 8 characters')
     }
 
+    let companySlug: string | undefined
+    if (
+        payload['companySlug'] !== undefined &&
+        payload['companySlug'] !== null &&
+        typeof payload['companySlug'] === 'string' &&
+        payload['companySlug'].trim() !== ''
+    ) {
+        const slug = getString(payload['companySlug'], 'companySlug', 100).toLowerCase()
+        if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+            throw new LoginInputError('companySlug is invalid')
+        }
+        companySlug = slug
+    }
+
     return {
-        companySlug,
         email,
-        password
+        password,
+        companySlug
     }
 }
 
@@ -174,25 +183,64 @@ export const loginUser = async (
         throw new Error('JWT secret is missing')
     }
 
-    const [company] = await database.select().from(companies).where(eq(companies.slug, request.companySlug))
+    let user: typeof users.$inferSelect | undefined
+    let company: typeof companies.$inferSelect | undefined
 
-    if (company === undefined) {
-        throw new InvalidCredentialsError('Invalid credentials')
-    }
+    if (request.companySlug !== undefined) {
+        const [foundCompany] = await database
+            .select()
+            .from(companies)
+            .where(and(eq(companies.slug, request.companySlug), eq(companies.isActive, true)))
 
-    const [user] = await database
-        .select()
-        .from(users)
-        .where(and(eq(users.companyId, company.id), eq(users.email, request.email)))
+        if (foundCompany === undefined) {
+            throw new InvalidCredentialsError('Invalid credentials')
+        }
 
-    if (user === undefined) {
-        throw new InvalidCredentialsError('Invalid credentials')
-    }
+        const [foundUser] = await database
+            .select()
+            .from(users)
+            .where(and(eq(users.companyId, foundCompany.id), eq(users.email, request.email), eq(users.isActive, true)))
 
-    const isValidPassword = await verifyPassword(request.password, user.passwordHash)
+        if (foundUser === undefined) {
+            throw new InvalidCredentialsError('Invalid credentials')
+        }
 
-    if (!isValidPassword) {
-        throw new InvalidCredentialsError('Invalid credentials')
+        const isValidPassword = await verifyPassword(request.password, foundUser.passwordHash)
+        if (!isValidPassword) {
+            throw new InvalidCredentialsError('Invalid credentials')
+        }
+
+        user = foundUser
+        company = foundCompany
+    } else {
+        const candidateUsers = await database
+            .select()
+            .from(users)
+            .where(and(eq(users.email, request.email), eq(users.isActive, true)))
+
+        if (candidateUsers.length === 0) {
+            throw new InvalidCredentialsError('Invalid credentials')
+        }
+
+        for (const candidate of candidateUsers) {
+            const isMatch = await verifyPassword(request.password, candidate.passwordHash)
+            if (isMatch) {
+                const [foundCompany] = await database
+                    .select()
+                    .from(companies)
+                    .where(and(eq(companies.id, candidate.companyId), eq(companies.isActive, true)))
+
+                if (foundCompany !== undefined) {
+                    user = candidate
+                    company = foundCompany
+                    break
+                }
+            }
+        }
+
+        if (user === undefined || company === undefined) {
+            throw new InvalidCredentialsError('Invalid credentials')
+        }
     }
 
     const token = createAccessToken(user, company, jwtSecret, accessTokenExpiresIn)

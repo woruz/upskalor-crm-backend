@@ -10,6 +10,7 @@ import { database } from '../../database/client.js'
 import { ensureCompanyLeadTables } from '../../database/tenants.js'
 import { createDownloadUrl, createUploadUrl, getObjectMetadata, getObjectStream, putObject } from '../../common/utils/storage.js'
 import type { StorageConfig } from '../../common/types/config.js'
+import { enqueueLeadImportJob } from '../../jobs/index.js'
 import {
     LEAD_STATUSES,
     LeadInputError,
@@ -21,15 +22,15 @@ import {
     type LeadFilters
 } from './leads.js'
 
-export const IMPORT_STATUSES = ['UPLOADING', 'UPLOADED', 'PROCESSING', 'COMPLETED', 'COMPLETED_WITH_ERRORS', 'FAILED'] as const
+export const IMPORT_STATUSES = ['UPLOADING', 'UPLOADED', 'QUEUED', 'PROCESSING', 'COMPLETED', 'COMPLETED_WITH_ERRORS', 'FAILED'] as const
 export type ImportStatus = (typeof IMPORT_STATUSES)[number]
 export const EXPORT_STATUSES = ['QUEUED', 'PROCESSING', 'COMPLETED', 'FAILED'] as const
 export type ExportStatus = (typeof EXPORT_STATUSES)[number]
 export type TransferFormat = 'csv' | 'xlsx'
 
-export class TransferInputError extends Error {}
-export class TransferNotFoundError extends Error {}
-export class TransferOwnershipError extends Error {}
+export class TransferInputError extends Error { }
+export class TransferNotFoundError extends Error { }
+export class TransferOwnershipError extends Error { }
 
 interface UploadRequest {
     fileName: string
@@ -55,10 +56,10 @@ const CSV_CONTENT_TYPES = new Set(['text/csv', 'application/csv'])
 const XLSX_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const CHUNK_SIZE = 100
-const LEAD_TABLE = (schemaName: string) => sql.raw(`${schemaName}.leads`)
-const IMPORT_TABLE = (schemaName: string) => sql.raw(`${schemaName}.lead_imports`)
-const IMPORT_ERROR_TABLE = (schemaName: string) => sql.raw(`${schemaName}.lead_import_errors`)
-const EXPORT_TABLE = (schemaName: string) => sql.raw(`${schemaName}.lead_exports`)
+const LEAD_TABLE = (schemaName: string) => sql.raw(`"${schemaName}".leads`)
+const IMPORT_TABLE = (schemaName: string) => sql.raw(`"${schemaName}".lead_imports`)
+const IMPORT_ERROR_TABLE = (schemaName: string) => sql.raw(`"${schemaName}".lead_import_errors`)
+const EXPORT_TABLE = (schemaName: string) => sql.raw(`"${schemaName}".lead_exports`)
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 
@@ -201,15 +202,39 @@ export const confirmImport = async (
 
     const { rows: insertedRows } = await database.execute(sql`
         insert into ${IMPORT_TABLE(schemaName)} (id, file_name, s3_key, uploaded_by, status)
-        values (${fileId}, ${key.split('/').at(-1) ?? key}, ${key}, ${userId}, 'UPLOADED')
+        values (${fileId}, ${key.split('/').at(-1) ?? key}, ${key}, ${userId}, 'QUEUED')
         returning *
     `)
     const inserted = insertedRows[0] as Record<string, unknown> | undefined
     if (inserted === undefined) {
         throw new Error('Import record creation failed')
     }
-    void processImport(client, storage, companyId, userId, fileId, key).catch(() => undefined)
+
+    // Asynchronously dispatch background import job to BullMQ
+    await enqueueLeadImportJob({
+        companyId,
+        userId,
+        importId: fileId,
+        s3Key: key,
+        fileName: key.split('/').at(-1) ?? key,
+        extension
+    })
+
     return toImportResponse(inserted)
+}
+
+const extractCellValue = (cell: unknown): unknown => {
+    if (cell === null || cell === undefined) return undefined
+    if (cell instanceof Date) return cell
+    if (typeof cell === 'object') {
+        if ('text' in cell && typeof (cell as { text: unknown }).text === 'string') {
+            return (cell as { text: string }).text
+        }
+        if ('result' in cell) {
+            return (cell as { result: unknown }).result
+        }
+    }
+    return cell
 }
 
 const normalizeHeader = (value: unknown): string =>
@@ -239,7 +264,7 @@ const mapRow = (headers: string[], values: unknown[], rowNumber: number): Import
     headers.forEach((header, index) => {
         const field = HEADER_MAP[normalizeHeader(header)]
         if (field !== undefined) {
-            mapped[field] = values[index]
+            mapped[field] = extractCellValue(values[index])
         }
     })
     return { rowNumber, values: mapped }
@@ -337,60 +362,151 @@ const writeErrorReport = async (client: S3Client, storage: StorageConfig, compan
     return key
 }
 
-const processImport = async (client: S3Client, storage: StorageConfig, companyId: string, userId: string, importId: string, key: string): Promise<void> => {
+export const executeImportJob = async (
+    client: S3Client,
+    storage: StorageConfig,
+    companyId: string,
+    userId: string,
+    importId: string,
+    key: string
+): Promise<void> => {
     const { schemaName } = await getOwnedImport(companyId, userId, importId)
-    await database.execute(sql`update ${IMPORT_TABLE(schemaName)} set status = 'PROCESSING', started_at = now(), updated_at = now() where id = ${importId} and status = 'UPLOADED'`)
-    const { body } = await getObjectStream(client, storage, key)
-    const rows = key.endsWith('.csv') ? csvRows(body) : xlsxRows(body)
-    const errors: ImportError[] = []
-    const validRows: Array<{ row: ImportRow; input: LeadInput }> = []
-    let totalRows = 0
-    let duplicateRows = 0
-    const seenMobiles = new Set<string>()
+    await database.execute(
+        sql`update ${IMPORT_TABLE(schemaName)} set status = 'PROCESSING', started_at = now(), updated_at = now() where id = ${importId} and (status = 'UPLOADED' or status = 'QUEUED')`
+    )
 
-    for await (const row of rows) {
-        totalRows += 1
-        try {
-            const input = await validateImportRow(companyId, row)
-            if (seenMobiles.has(input.mobileNumber)) {
-                duplicateRows += 1
-                errors.push({ rowNumber: row.rowNumber, mobileNumber: input.mobileNumber, reason: 'Duplicate mobile number in import' })
-                continue
+    try {
+        const { body } = await getObjectStream(client, storage, key)
+        const rows = key.endsWith('.csv') ? csvRows(body) : xlsxRows(body)
+        const errors: ImportError[] = []
+        const validRows: Array<{ row: ImportRow; input: LeadInput }> = []
+        let totalRows = 0
+        let duplicateRows = 0
+        const seenMobiles = new Set<string>()
+
+        for await (const row of rows) {
+            totalRows += 1
+            try {
+                const input = await validateImportRow(companyId, row)
+                if (seenMobiles.has(input.mobileNumber)) {
+                    duplicateRows += 1
+                    errors.push({ rowNumber: row.rowNumber, mobileNumber: input.mobileNumber, reason: 'Duplicate mobile number in import' })
+                    continue
+                }
+                seenMobiles.add(input.mobileNumber)
+                validRows.push({ row, input })
+            } catch (error) {
+                const reason = error instanceof Error ? error.message : 'Row is invalid'
+                errors.push({
+                    rowNumber: row.rowNumber,
+                    customerName: typeof row.values['customerName'] === 'string' ? row.values['customerName'] : undefined,
+                    mobileNumber: typeof row.values['mobileNumber'] === 'string' ? row.values['mobileNumber'] : undefined,
+                    reason
+                })
             }
-            seenMobiles.add(input.mobileNumber)
-            validRows.push({ row, input })
-        } catch (error) {
-            const reason = error instanceof Error ? error.message : 'Row is invalid'
-            errors.push({
-                rowNumber: row.rowNumber,
-                customerName: typeof row.values['customerName'] === 'string' ? row.values['customerName'] : undefined,
-                mobileNumber: typeof row.values['mobileNumber'] === 'string' ? row.values['mobileNumber'] : undefined,
-                reason
-            })
         }
+
+        const existingMobiles = await findDuplicateMobiles(schemaName, validRows.map(({ input }) => input.mobileNumber))
+        const insertable = validRows.filter(({ row, input }) => {
+            if (!existingMobiles.has(input.mobileNumber)) {
+                return true
+            }
+            duplicateRows += 1
+            errors.push({ rowNumber: row.rowNumber, mobileNumber: input.mobileNumber, reason: 'Duplicate mobile number already exists' })
+            return false
+        })
+
+        for (let index = 0; index < insertable.length; index += CHUNK_SIZE) {
+            await insertLeadChunk(schemaName, userId, insertable.slice(index, index + CHUNK_SIZE).map(({ input }) => input))
+        }
+
+        const errorFileKey = await writeErrorReport(client, storage, companyId, importId, errors)
+        if (errors.length > 0) {
+            const errorValues = errors.map(
+                (error) =>
+                    sql`(${randomUUID()}, ${importId}, ${error.rowNumber}, ${error.field ?? null}, ${error.customerName ?? null}, ${error.mobileNumber ?? null}, ${error.reason}, now())`
+            )
+            await database.execute(
+                sql`insert into ${IMPORT_ERROR_TABLE(schemaName)} (id, import_id, row_number, field, customer_name, mobile_number, reason, created_at) values ${sql.join(errorValues, sql`, `)}`
+            )
+        }
+        const status: ImportStatus = errors.length > 0 ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED'
+        await database.execute(
+            sql`update ${IMPORT_TABLE(schemaName)} set status = ${status}, total_rows = ${totalRows}, successful_rows = ${insertable.length}, failed_rows = ${errors.length - duplicateRows}, duplicate_rows = ${duplicateRows}, error_file_key = ${errorFileKey ?? null}, completed_at = now(), updated_at = now() where id = ${importId}`
+        )
+    } catch (err) {
+        await database.execute(
+            sql`update ${IMPORT_TABLE(schemaName)} set status = 'FAILED', completed_at = now(), updated_at = now() where id = ${importId}`
+        )
+        throw err
+    }
+}
+
+export const handleS3UploadHook = async (
+    _client: S3Client,
+    _storage: StorageConfig,
+    body: unknown
+): Promise<{ success: boolean; importId: string; status: string }> => {
+    if (!isRecord(body)) {
+        throw new TransferInputError('Webhook payload must be a JSON object')
     }
 
-    const existingMobiles = await findDuplicateMobiles(schemaName, validRows.map(({ input }) => input.mobileNumber))
-    const insertable = validRows.filter(({ row, input }) => {
-        if (!existingMobiles.has(input.mobileNumber)) {
-            return true
-        }
-        duplicateRows += 1
-        errors.push({ rowNumber: row.rowNumber, mobileNumber: input.mobileNumber, reason: 'Duplicate mobile number already exists' })
-        return false
+    // 1. Resolve S3 key from either AWS S3 Event Notification or direct JSON payload
+    let s3Key: string | undefined = undefined
+    if (Array.isArray(body['Records']) && body['Records'].length > 0) {
+        const record = body['Records'][0] as Record<string, unknown>
+        const s3Data = record['s3'] as Record<string, unknown> | undefined
+        const objectData = s3Data?.['object'] as Record<string, unknown> | undefined
+        s3Key = typeof objectData?.['key'] === 'string' ? objectData['key'] : undefined
+    } else if (typeof body['key'] === 'string') {
+        s3Key = body['key']
+    }
+
+    if (!s3Key) {
+        throw new TransferInputError('S3 key could not be extracted from webhook payload')
+    }
+
+    // Clean up URL-encoded keys (AWS S3 event notifications encode '+' and '%20' etc.)
+    s3Key = decodeURIComponent(s3Key.replace(/\+/g, ' '))
+
+    // 2. Validate S3 key format: leads/{companyId}/imports/{userId}/{fileId}.(csv|xlsx)
+    const match = /^leads\/([0-9a-f-]{36})\/imports\/([0-9a-f-]{36})\/([0-9a-f-]{36})\.(csv|xlsx)$/i.exec(s3Key)
+    if (!match) {
+        throw new TransferInputError(`Invalid S3 import key pattern: ${s3Key}`)
+    }
+
+    const companyId = match[1]!
+    const userId = match[2]!
+    const fileId = match[3]!
+    const extension = match[4]!.toLowerCase() as 'csv' | 'xlsx'
+
+    // 3. Ensure tenant tables exist
+    const schemaName = await ensureCompanyLeadTables(companyId)
+
+    // 4. Check if record already exists in database
+    const { rows } = await database.execute(
+        sql`select id, status from ${IMPORT_TABLE(schemaName)} where id = ${fileId}`
+    )
+    const existing = rows[0] as Record<string, unknown> | undefined
+
+    if (existing === undefined) {
+        await database.execute(sql`
+            insert into ${IMPORT_TABLE(schemaName)} (id, file_name, s3_key, uploaded_by, status)
+            values (${fileId}, ${s3Key.split('/').at(-1) ?? s3Key}, ${s3Key}, ${userId}, 'QUEUED')
+        `)
+    }
+
+    // 5. Enqueue BullMQ job
+    await enqueueLeadImportJob({
+        companyId,
+        userId,
+        importId: fileId,
+        s3Key,
+        fileName: s3Key.split('/').at(-1) ?? s3Key,
+        extension
     })
 
-    for (let index = 0; index < insertable.length; index += CHUNK_SIZE) {
-        await insertLeadChunk(schemaName, userId, insertable.slice(index, index + CHUNK_SIZE).map(({ input }) => input))
-    }
-
-    const errorFileKey = await writeErrorReport(client, storage, companyId, importId, errors)
-    if (errors.length > 0) {
-        const errorValues = errors.map((error) => sql`(${randomUUID()}, ${importId}, ${error.rowNumber}, ${error.field ?? null}, ${error.customerName ?? null}, ${error.mobileNumber ?? null}, ${error.reason}, now())`)
-        await database.execute(sql`insert into ${IMPORT_ERROR_TABLE(schemaName)} (id, import_id, row_number, field, customer_name, mobile_number, reason, created_at) values ${sql.join(errorValues, sql`, `)}`)
-    }
-    const status: ImportStatus = errors.length > 0 ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED'
-    await database.execute(sql`update ${IMPORT_TABLE(schemaName)} set status = ${status}, total_rows = ${totalRows}, successful_rows = ${insertable.length}, failed_rows = ${errors.length - duplicateRows}, duplicate_rows = ${duplicateRows}, error_file_key = ${errorFileKey ?? null}, completed_at = now(), updated_at = now() where id = ${importId}`)
+    return { success: true, importId: fileId, status: 'QUEUED' }
 }
 
 export const getImportStatus = async (companyId: string, userId: string, importId: string): Promise<Record<string, unknown>> => {
