@@ -56,10 +56,10 @@ const CSV_CONTENT_TYPES = new Set(['text/csv', 'application/csv'])
 const XLSX_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const CHUNK_SIZE = 100
-const LEAD_TABLE = (schemaName: string) => sql.raw(`${schemaName}.leads`)
-const IMPORT_TABLE = (schemaName: string) => sql.raw(`${schemaName}.lead_imports`)
-const IMPORT_ERROR_TABLE = (schemaName: string) => sql.raw(`${schemaName}.lead_import_errors`)
-const EXPORT_TABLE = (schemaName: string) => sql.raw(`${schemaName}.lead_exports`)
+const LEAD_TABLE = (schemaName: string) => sql.raw(`"${schemaName}".leads`)
+const IMPORT_TABLE = (schemaName: string) => sql.raw(`"${schemaName}".lead_imports`)
+const IMPORT_ERROR_TABLE = (schemaName: string) => sql.raw(`"${schemaName}".lead_import_errors`)
+const EXPORT_TABLE = (schemaName: string) => sql.raw(`"${schemaName}".lead_exports`)
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 

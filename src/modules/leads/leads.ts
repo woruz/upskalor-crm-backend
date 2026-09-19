@@ -317,19 +317,37 @@ const buildWhereConditions = (schemaName: string, filters: LeadFilters): SQL[] =
 }
 
 export const createLead = async (companyId: string, userId: string, input: LeadInput): Promise<Record<string, unknown>> => {
-    const schemaName = await ensureCompanyLeadTables(companyId)
+    let schemaName = await ensureCompanyLeadTables(companyId)
     if (input.assignedExecutive) {
         await verifyExecutive(companyId, input.assignedExecutive)
     }
     const id = randomUUID()
-    const table = leadTable(schemaName)
-    const aTable = activityTable(schemaName)
+    let table = leadTable(schemaName)
+    let aTable = activityTable(schemaName)
 
-    const { rows: createRows } = await database.execute(sql`
-        insert into ${table}
-        (id, customer_name, mobile_number, email, address, monthly_bill_amount, follow_up_date, state, city, roof_ownership, roof_type, lead_source, assigned_executive, status, created_by)
-        values (${id}, ${input.customerName}, ${input.mobileNumber}, ${input.email ?? null}, ${input.address ?? null}, ${input.monthlyBillAmount ?? null}, ${input.followUpDate}, ${input.state ?? null}, ${input.city ?? null}, ${input.roofOwnership ?? null}, ${input.roofType ?? null}, ${input.leadSource ?? null}, ${input.assignedExecutive ?? null}, ${input.status}, ${userId}) returning *
-    `)
+    let createRows: unknown[]
+    try {
+        const { rows } = await database.execute(sql`
+            insert into ${table}
+            (id, customer_name, mobile_number, email, address, monthly_bill_amount, follow_up_date, state, city, roof_ownership, roof_type, lead_source, assigned_executive, status, created_by)
+            values (${id}, ${input.customerName}, ${input.mobileNumber}, ${input.email ?? null}, ${input.address ?? null}, ${input.monthlyBillAmount ?? null}, ${input.followUpDate}, ${input.state ?? null}, ${input.city ?? null}, ${input.roofOwnership ?? null}, ${input.roofType ?? null}, ${input.leadSource ?? null}, ${input.assignedExecutive ?? null}, ${input.status}, ${userId}) returning *
+        `)
+        createRows = rows
+    } catch (error) {
+        if (error instanceof Error && (error.message.includes('does not exist') || error.message.includes('relation'))) {
+            schemaName = await ensureCompanyLeadTables(companyId, true)
+            table = leadTable(schemaName)
+            aTable = activityTable(schemaName)
+            const { rows } = await database.execute(sql`
+                insert into ${table}
+                (id, customer_name, mobile_number, email, address, monthly_bill_amount, follow_up_date, state, city, roof_ownership, roof_type, lead_source, assigned_executive, status, created_by)
+                values (${id}, ${input.customerName}, ${input.mobileNumber}, ${input.email ?? null}, ${input.address ?? null}, ${input.monthlyBillAmount ?? null}, ${input.followUpDate}, ${input.state ?? null}, ${input.city ?? null}, ${input.roofOwnership ?? null}, ${input.roofType ?? null}, ${input.leadSource ?? null}, ${input.assignedExecutive ?? null}, ${input.status}, ${userId}) returning *
+            `)
+            createRows = rows
+        } else {
+            throw error
+        }
+    }
     const row = createRows[0] as unknown as LeadRow | undefined
     if (row === undefined) {
         throw new Error('Lead creation failed')

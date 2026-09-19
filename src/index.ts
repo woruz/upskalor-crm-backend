@@ -5,6 +5,7 @@ import { SERVER } from './common/constants/server.constants.js'
 import type { AppConfig } from './common/types/config.js'
 import { loadConfig } from './config/environment.js'
 import { closeRedis } from './database/redis.js'
+import { ensureRootTables } from './database/tenants.js'
 import { initWorkers, closeWorkers, closeQueues } from './jobs/index.js'
 import { handleRoute } from './routes/index.js'
 
@@ -66,6 +67,9 @@ const shutdown = (server: Server, signal: NodeJS.Signals): void => {
 
 export const startServer = (config: AppConfig = loadConfig()): Server => {
     initWorkers(config)
+    void ensureRootTables().catch((error) => {
+        writeLog('error', 'Failed to initialize root tables on startup', { error: error instanceof Error ? error.message : String(error) })
+    })
     const server = createHttpServer(config)
 
     server.once('error', (error) => {

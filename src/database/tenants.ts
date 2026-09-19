@@ -60,9 +60,138 @@ export const resolveCompanySchemaById = async (companyId: string): Promise<PgSch
  */
 const quotedSchema = (schemaName: string): string => `"${schemaName}"`
 
-const createSchema = async (transaction: Parameters<Parameters<typeof database.transaction>[0]>[0], schemaName: string): Promise<void> => {
+const createSchema = async (db: Pick<typeof database, 'execute'>, schemaName: string): Promise<void> => {
     resolveCompanySchema(schemaName)
-    await transaction.execute(sql.raw(`create schema ${quotedSchema(schemaName)}`))
+    await db.execute(sql.raw(`create schema if not exists ${quotedSchema(schemaName)}`))
+}
+
+let rootTablesInitialized = false
+
+export const ensureRootTables = async (db: Pick<typeof database, 'execute'> = database): Promise<void> => {
+    if (rootTablesInitialized) {
+        return
+    }
+
+    await db.execute(
+        sql.raw(`
+        create schema if not exists "root";
+
+        create table if not exists "root"."companies" (
+            "id" uuid primary key not null,
+            "name" varchar(150) not null,
+            "slug" varchar(100) not null unique,
+            "schema_name" varchar(63) not null unique,
+            "is_active" boolean default true not null,
+            "created_at" timestamptz default now() not null,
+            "updated_at" timestamptz default now() not null
+        );
+
+        create table if not exists "root"."roles" (
+            "id" uuid primary key default gen_random_uuid() not null,
+            "name" varchar(60) not null unique,
+            "display_name" varchar(120) default '' not null,
+            "description" varchar(255) default '' not null,
+            "is_system" boolean default false not null,
+            "company_id" uuid references "root"."companies"("id") on delete cascade,
+            "created_at" timestamptz default now() not null,
+            "updated_at" timestamptz default now() not null
+        );
+        alter table "root"."roles" add column if not exists "display_name" varchar(120) default '' not null;
+        alter table "root"."roles" add column if not exists "is_system" boolean default false not null;
+        alter table "root"."roles" add column if not exists "company_id" uuid references "root"."companies"("id") on delete cascade;
+
+        create table if not exists "root"."role_permissions" (
+            "id" uuid primary key default gen_random_uuid() not null,
+            "role_id" uuid not null references "root"."roles"("id") on delete cascade,
+            "resource" varchar(80) not null,
+            "actions" jsonb default '[]'::jsonb not null,
+            "created_at" timestamptz default now() not null,
+            "updated_at" timestamptz default now() not null,
+            unique ("role_id", "resource")
+        );
+
+        create table if not exists "root"."actions" (
+            "id" uuid primary key default gen_random_uuid() not null,
+            "name" varchar(30) not null unique,
+            "description" varchar(255) default '' not null,
+            "created_at" timestamptz default now() not null,
+            "updated_at" timestamptz default now() not null
+        );
+
+        create table if not exists "root"."resources" (
+            "id" uuid primary key default gen_random_uuid() not null,
+            "name" varchar(60) not null unique,
+            "description" varchar(255) default '' not null,
+            "created_at" timestamptz default now() not null,
+            "updated_at" timestamptz default now() not null
+        );
+
+        create table if not exists "root"."users" (
+            "id" uuid primary key not null,
+            "company_id" uuid not null references "root"."companies"("id"),
+            "email" varchar(320) not null,
+            "first_name" varchar(100) not null,
+            "last_name" varchar(100) not null,
+            "password_hash" varchar(255) not null,
+            "role" varchar(60) default 'user' not null,
+            "status" varchar(20) default 'ACTIVE' not null,
+            "is_active" boolean default true not null,
+            "created_at" timestamptz default now() not null,
+            "updated_at" timestamptz default now() not null
+        );
+
+        alter table "root"."users" add column if not exists "status" varchar(20) default 'ACTIVE' not null;
+        create unique index if not exists "users_company_email_unique" on "root"."users" ("company_id", "email");
+        create index if not exists "users_company_id_idx" on "root"."users" ("company_id");
+        create index if not exists "users_email_lower_idx" on "root"."users" (lower("email"));
+
+        create table if not exists "root"."refresh_tokens" (
+            "id" uuid primary key default gen_random_uuid() not null,
+            "user_id" uuid not null references "root"."users"("id") on delete cascade,
+            "token_hash" varchar(64) not null unique,
+            "family_id" uuid not null,
+            "expires_at" timestamptz not null,
+            "revoked_at" timestamptz,
+            "replaced_by_token_id" uuid,
+            "created_at" timestamptz default now() not null,
+            "last_used_at" timestamptz
+        );
+
+        create index if not exists "refresh_tokens_user_id_idx" on "root"."refresh_tokens" ("user_id");
+        create index if not exists "refresh_tokens_family_id_idx" on "root"."refresh_tokens" ("family_id");
+        create index if not exists "refresh_tokens_expires_at_idx" on "root"."refresh_tokens" ("expires_at");
+
+        insert into "root"."roles" ("name", "description")
+        values
+            ('super_admin', 'Company owner and full access administrator'),
+            ('admin', 'Company manager with administrative access'),
+            ('user', 'Standard company user')
+        on conflict ("name") do nothing;
+
+        insert into "root"."actions" ("name", "description")
+        values
+            ('create', 'Create a new record'),
+            ('read', 'View a record'),
+            ('update', 'Modify an existing record'),
+            ('delete', 'Remove a record')
+        on conflict ("name") do nothing;
+
+        insert into "root"."resources" ("name", "description")
+        values
+            ('users', 'User management'),
+            ('contacts', 'Customer and contact records'),
+            ('organizations', 'Organization records'),
+            ('leads', 'Lead records'),
+            ('opportunities', 'Sales opportunity records'),
+            ('tasks', 'Task records'),
+            ('notes', 'Notes and comments'),
+            ('files', 'File entities'),
+            ('quotations', 'Quotation records')
+        on conflict ("name") do nothing;
+    `)
+    )
+
+    rootTablesInitialized = true
 }
 
 const buildDefaultCompanyPermissions = (roleName: string): Array<{ roleName: string; resourceName: string; actionName: string }> => {
@@ -76,13 +205,13 @@ const buildDefaultCompanyPermissions = (roleName: string): Array<{ roleName: str
 }
 
 export const createCompanyPermissionTables = async (
-    transaction: Parameters<Parameters<typeof database.transaction>[0]>[0],
+    db: Pick<typeof database, 'execute'>,
     schemaName: string
 ): Promise<void> => {
     resolveCompanySchema(schemaName)
     const qs = quotedSchema(schemaName)
 
-    await transaction.execute(
+    await db.execute(
         sql.raw(`
         create table if not exists ${qs}.role_permissions (
             id uuid primary key default gen_random_uuid(),
@@ -110,7 +239,7 @@ export const createCompanyPermissionTables = async (
         .map(({ roleName, resourceName, actionName }) => `('${roleName}', '${resourceName}', '${actionName}')`)
         .join(', ')
 
-    await transaction.execute(
+    await db.execute(
         sql.raw(`
             insert into ${qs}.role_permissions (role_name, resource_name, action_name)
             values ${values}
@@ -301,47 +430,46 @@ export const getCompanySchemaNameById = async (companyId: string): Promise<strin
  * only on the very first request per company (flag cached in Redis with 24h TTL).
  * On subsequent requests the Redis flag short-circuits the DDL entirely.
  */
-export const ensureCompanyLeadTables = async (companyId: string): Promise<string> => {
-    // ── 1. Check init flag ────────────────────────────────────────────────────
+export const ensureCompanyTables = async (companyId: string, force = false): Promise<string> => {
     const initKey = CACHE_KEYS.tenantInitialized(companyId)
-    const initialized = await getCache<boolean>(initKey)
 
-    if (initialized === true) {
-        // Tables exist and schema name is cached — fast path, no DDL/DB
-        const schemaName = await getCompanySchemaNameById(companyId)
-        return schemaName
+    if (!force) {
+        const initialized = await getCache<boolean>(initKey)
+        if (initialized === true) {
+            return getCompanySchemaNameById(companyId)
+        }
     }
 
-    // ── 2. First-time: fetch schema name and ensure all tenant tables ─────────
     const schemaName = await getCompanySchemaNameById(companyId)
+    await createSchema(database, schemaName)
+    await createCompanyPermissionTables(database, schemaName)
     await createCompanyLeadTables(database, schemaName)
     await createCompanyQuotationTables(database, schemaName)
 
-    // ── 3. Set the init flag so DDL never runs again ──────────────────────────
     await setCache(initKey, true, CACHE_TTL.TENANT_INITIALIZED)
 
     return schemaName
 }
 
-/**
- * Returns the schema name, ensuring tenant tables exist.
- * Reuses the single tenantInitialized Redis guard.
- */
-export const ensureCompanyQuotationTables = async (companyId: string): Promise<string> => {
-    return ensureCompanyLeadTables(companyId)
+export const ensureCompanyLeadTables = async (companyId: string, force = false): Promise<string> => {
+    return ensureCompanyTables(companyId, force)
+}
+
+export const ensureCompanyQuotationTables = async (companyId: string, force = false): Promise<string> => {
+    return ensureCompanyTables(companyId, force)
 }
 
 export const upsertRolePermission = async (companyId: string, permission: PermissionAssignment): Promise<PermissionAssignment> => {
-    const schemaName = await getCompanySchemaNameById(companyId)
-    const qs = quotedSchema(schemaName)
+    const schemaName = await ensureCompanyTables(companyId)
+    const table = sql.raw(`"${schemaName}".role_permissions`)
 
     await database.execute(
-        sql.raw(`
-            insert into ${qs}.role_permissions (role_name, resource_name, action_name)
-            values ('${permission.roleName}', '${permission.resourceName}', '${permission.actionName}')
+        sql`
+            insert into ${table} (role_name, resource_name, action_name)
+            values (${permission.roleName}, ${permission.resourceName}, ${permission.actionName})
             on conflict (role_name, resource_name, action_name)
             do update set updated_at = now()
-        `)
+        `
     )
 
     // Invalidate cached permission set for this role so the change takes effect immediately
@@ -351,16 +479,16 @@ export const upsertRolePermission = async (companyId: string, permission: Permis
 }
 
 export const deleteRolePermission = async (companyId: string, permission: PermissionAssignment): Promise<void> => {
-    const schemaName = await getCompanySchemaNameById(companyId)
-    const qs = quotedSchema(schemaName)
+    const schemaName = await ensureCompanyTables(companyId)
+    const table = sql.raw(`"${schemaName}".role_permissions`)
 
     await database.execute(
-        sql.raw(`
-            delete from ${qs}.role_permissions
-            where role_name = '${permission.roleName}'
-              and resource_name = '${permission.resourceName}'
-              and action_name = '${permission.actionName}'
-        `)
+        sql`
+            delete from ${table}
+            where role_name = ${permission.roleName}
+              and resource_name = ${permission.resourceName}
+              and action_name = ${permission.actionName}
+        `
     )
 
     await deleteCache(CACHE_KEYS.permissionSet(companyId, permission.roleName))
@@ -405,6 +533,7 @@ export const registerCompany = async ({
     const schemaName = createCompanySchemaName(companyId)
 
     return database.transaction(async (transaction) => {
+        await ensureRootTables(transaction)
         await createSchema(transaction, schemaName)
         await createCompanyPermissionTables(transaction, schemaName)
         await createCompanyLeadTables(transaction, schemaName)

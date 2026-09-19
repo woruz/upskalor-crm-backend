@@ -17,8 +17,28 @@ const sendJson = (response: ServerResponse, statusCode: number, body: unknown, h
     }
 }
 
-const sendError = (response: ServerResponse, statusCode: number, code: string, message: string, requestId: string, headOnly: boolean): void => {
-    sendJson(response, statusCode, { error: { code, message, requestId } }, headOnly)
+const sendError = (
+    response: ServerResponse,
+    statusCode: number,
+    code: string,
+    message: string,
+    requestId: string,
+    headOnly: boolean,
+    details?: unknown
+): void => {
+    sendJson(
+        response,
+        statusCode,
+        {
+            error: {
+                code,
+                message,
+                details: details ?? message,
+                requestId
+            }
+        },
+        headOnly
+    )
 }
 
 const readJsonBody = async (request: IncomingMessage, bodyLimit: number): Promise<unknown> => {

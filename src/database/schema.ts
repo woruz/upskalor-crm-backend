@@ -1,5 +1,5 @@
 import { relations, sql } from 'drizzle-orm'
-import { boolean, index, pgSchema, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core'
+import { boolean, index, jsonb, pgSchema, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core'
 
 export const ROOT_SCHEMA_NAME = 'root'
 export const rootSchema = pgSchema(ROOT_SCHEMA_NAME)
@@ -16,11 +16,32 @@ export const companies = rootSchema.table('companies', {
 
 export const roles = rootSchema.table('roles', {
     id: uuid('id').primaryKey().defaultRandom(),
-    name: varchar('name', { length: 30 }).notNull().unique(),
-    description: varchar('description', { length: 255 }).notNull().default(''),
+    name: varchar('name', { length: 60 }).notNull().unique(),
+    displayName: varchar('display_name', { length: 120 }).notNull().default(''),
+    description: varchar('description', { length: 255 }).default(''),
+    isSystem: boolean('is_system').notNull().default(false),
+    companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 })
+
+export const rolePermissions = rootSchema.table(
+    'role_permissions',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        roleId: uuid('role_id')
+            .notNull()
+            .references(() => roles.id, { onDelete: 'cascade' }),
+        resource: varchar('resource', { length: 80 }).notNull(),
+        actions: jsonb('actions').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+        createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+        updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+    },
+    (table) => ({
+        roleResourceUnique: uniqueIndex('role_permissions_role_resource_unique').on(table.roleId, table.resource),
+        roleIndex: index('role_permissions_role_id_idx').on(table.roleId)
+    })
+)
 
 export const actions = rootSchema.table('actions', {
     id: uuid('id').primaryKey().defaultRandom(),
@@ -49,7 +70,8 @@ export const users = rootSchema.table(
         firstName: varchar('first_name', { length: 100 }).notNull(),
         lastName: varchar('last_name', { length: 100 }).notNull(),
         passwordHash: varchar('password_hash', { length: 255 }).notNull(),
-        role: varchar('role', { length: 30 }).notNull().default('user'),
+        role: varchar('role', { length: 60 }).notNull().default('user'),
+        status: varchar('status', { length: 20 }).notNull().default('ACTIVE'),
         isActive: boolean('is_active').notNull().default(true),
         createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
         updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
@@ -83,12 +105,25 @@ export const refreshTokens = rootSchema.table(
     })
 )
 
-export const roleRelations = relations(roles, ({ many }) => ({
-    users: many(users)
+export const roleRelations = relations(roles, ({ many, one }) => ({
+    users: many(users),
+    permissions: many(rolePermissions),
+    company: one(companies, {
+        fields: [roles.companyId],
+        references: [companies.id]
+    })
+}))
+
+export const rolePermissionRelations = relations(rolePermissions, ({ one }) => ({
+    role: one(roles, {
+        fields: [rolePermissions.roleId],
+        references: [roles.id]
+    })
 }))
 
 export const companyRelations = relations(companies, ({ many }) => ({
-    users: many(users)
+    users: many(users),
+    roles: many(roles)
 }))
 
 export const userRelations = relations(users, ({ one }) => ({

@@ -608,11 +608,11 @@ export const listQuotations = async (
 
     const where = sql.join(conditions, sql` and `)
     const sortColumns = {
-        createdAt: 'q.created_at',
-        validityDate: 'q.validity_date',
-        quoteNumber: 'q.quote_number',
-        systemSizeKw: 'q.system_size_kw',
-        grandTotal: 'q.grand_total'
+        createdAt: 'created_at',
+        validityDate: 'validity_date',
+        quoteNumber: 'quote_number',
+        systemSizeKw: 'system_size_kw',
+        grandTotal: 'grand_total'
     } as const
     // Safe: sortColumns keys are statically constrained by QuotationFilters['sort'] type
     const order = sql.raw(`${sortColumns[filters.sort]} ${filters.direction === 'asc' ? 'asc' : 'desc'}`)

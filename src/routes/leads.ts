@@ -45,8 +45,32 @@ const sendJson = (response: ServerResponse, statusCode: number, body: unknown, h
     }
 }
 
-const sendError = (response: ServerResponse, statusCode: number, code: string, message: string, requestId: string, headOnly: boolean): void => {
-    sendJson(response, statusCode, { error: { code, message, requestId } }, headOnly)
+const sendError = (
+    response: ServerResponse,
+    statusCode: number,
+    code: string,
+    message: string,
+    requestId: string,
+    headOnly: boolean,
+    details?: unknown
+): void => {
+    sendJson(
+        response,
+        statusCode,
+        {
+            error: {
+                code,
+                message,
+                details: details ?? message,
+                requestId
+            }
+        },
+        headOnly
+    )
+}
+
+const writeLog = (level: 'info' | 'error' | 'warn', message: string, metadata: Record<string, unknown> = {}): void => {
+    process.stdout.write(`${JSON.stringify({ level, message, timestamp: new Date().toISOString(), ...metadata })}\n`)
 }
 
 const readJsonBody = async (request: IncomingMessage, bodyLimit: number): Promise<unknown> => {
@@ -325,7 +349,13 @@ export const handleLeadRoute = async (
                 true
             )
         }
-        sendError(response, HTTP_STATUS.INTERNAL_SERVER_ERROR, 'INTERNAL_SERVER_ERROR', 'An internal server error occurred', requestId, headOnly)
+        const errMessage = error instanceof Error ? error.message : String(error)
+        writeLog('error', 'Unhandled lead route error', {
+            error: errMessage,
+            stack: error instanceof Error ? error.stack : undefined,
+            requestId
+        })
+        sendError(response, HTTP_STATUS.INTERNAL_SERVER_ERROR, 'INTERNAL_SERVER_ERROR', 'An internal server error occurred', requestId, headOnly, errMessage)
         return true
     }
 }

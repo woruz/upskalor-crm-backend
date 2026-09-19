@@ -74,7 +74,7 @@
       },
       "LoginRequest": {
         "type": "object",
-        "required": ["companySlug", "email", "password"],
+        "required": ["email", "password"],
         "properties": {
           "companySlug": { "type": "string", "example": "acme-solar" },
           "email": { "type": "string", "format": "email", "example": "owner@acmesolar.com" },
