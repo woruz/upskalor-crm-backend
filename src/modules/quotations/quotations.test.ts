@@ -142,5 +142,5 @@ void test('parseQuotationFilters rejects out-of-bound limit or invalid sort', ()
 })
 
 void test('QUOTATION_STATUSES catalog contains expected statuses', () => {
-    assert.deepEqual(QUOTATION_STATUSES, ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED'])
+    assert.deepEqual(QUOTATION_STATUSES, ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED', 'CONVERTED'])
 })

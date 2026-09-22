@@ -6,7 +6,16 @@ import { database } from '../../database/client.js'
 import { users } from '../../database/schema.js'
 import { ensureCompanyLeadTables } from '../../database/tenants.js'
 
-export const LEAD_STATUSES = ['NEW', 'CONTACTED', 'FOLLOW_UP', 'INTERESTED', 'NOT_INTERESTED', 'CONVERTED', 'LOST'] as const
+export const LEAD_STATUSES = [
+    'NEW',
+    'CONTACTED',
+    'FOLLOW_UP',
+    'INTERESTED',
+    'SURVEY_SCHEDULED',
+    'NOT_INTERESTED',
+    'CONVERTED',
+    'LOST'
+] as const
 export type LeadStatus = (typeof LEAD_STATUSES)[number]
 
 export const LEAD_ACTIVITY_TYPES = {
@@ -16,7 +25,15 @@ export const LEAD_ACTIVITY_TYPES = {
     REASSIGNED: 'LEAD_REASSIGNED',
     STATUS_CHANGED: 'LEAD_STATUS_CHANGED',
     FOLLOW_UP_CHANGED: 'FOLLOW_UP_CHANGED',
-    DELETED: 'LEAD_DELETED'
+    DELETED: 'LEAD_DELETED',
+    SURVEY_SCHEDULED: 'SURVEY_SCHEDULED',
+    SURVEY_RESCHEDULED: 'SURVEY_RESCHEDULED',
+    SURVEY_COMPLETED: 'SURVEY_COMPLETED',
+    PAYMENT_RECORDED: 'PAYMENT_RECORDED',
+    PAYMENT_VOIDED: 'PAYMENT_VOIDED',
+    INVOICE_GENERATED: 'INVOICE_GENERATED',
+    MILESTONE_COMPLETED: 'MILESTONE_COMPLETED',
+    PROJECT_COMPLETED: 'PROJECT_COMPLETED'
 } as const
 
 export class LeadInputError extends Error {}

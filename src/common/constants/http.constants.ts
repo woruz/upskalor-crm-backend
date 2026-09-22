@@ -19,7 +19,8 @@ export const HTTP_STATUS = {
     NOT_FOUND: 404,
     METHOD_NOT_ALLOWED: 405,
     CONFLICT: 409,
-    PAYLOAD_TOO_LARGE: 413
+    PAYLOAD_TOO_LARGE: 413,
+    UNPROCESSABLE_ENTITY: 422
 } as const
 
 export const HTTP_HEADERS = {
@@ -67,6 +68,22 @@ export const ROLE_ROUTES = {
 
 export const QUOTATION_ROUTES = {
     COLLECTION: '/quotations'
+} as const
+
+export const SURVEY_ROUTES = {
+    COLLECTION: '/surveys'
+} as const
+
+export const PROJECT_ROUTES = {
+    COLLECTION: '/projects'
+} as const
+
+export const PAYMENT_ROUTES = {
+    COLLECTION: '/payments'
+} as const
+
+export const INVOICE_ROUTES = {
+    COLLECTION: '/invoices'
 } as const
 
 export const DEFAULT_URL_BASE = 'http://localhost'

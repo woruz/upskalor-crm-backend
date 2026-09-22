@@ -21,6 +21,14 @@ tags:
     description: Bulk lead CSV upload/import with error reporting, and asynchronous CSV/Excel exports
   - name: Quotations
     description: Solar project quotation creation, financial summaries, line items, and lifecycle management
+  - name: Site Surveys
+    description: Site survey scheduling, technical specifications, photo management, and technician assignments
+  - name: Projects
+    description: Project creation from accepted quotations, lifecycle tracking, and milestone definitions
+  - name: Payments & Receipts
+    description: Payment transactions, receipt generation, PDF downloads, WhatsApp sharing, and collections dashboard
+  - name: Invoices
+    description: Customer invoice creation, sequential numbering, status updates, and cancellations
 
 components:
   securitySchemes:
@@ -342,7 +350,7 @@ components:
           nullable: true
         status:
           type: string
-          enum: [NEW, CONTACTED, FOLLOW_UP, INTERESTED, NOT_INTERESTED, CONVERTED, LOST]
+          enum: [NEW, CONTACTED, FOLLOW_UP, INTERESTED, SURVEY_SCHEDULED, NOT_INTERESTED, CONVERTED, LOST]
           default: NEW
 
     LeadActivity:
@@ -627,6 +635,151 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/QuotationItemInput"
+
+    Survey:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        leadId: { type: string, format: uuid, nullable: true }
+        customerName: { type: string }
+        mobileNumber: { type: string }
+        address: { type: string, nullable: true }
+        surveyDateTime: { type: string, format: date-time }
+        assignedTechId: { type: string, format: uuid, nullable: true }
+        assignedTech: { type: string }
+        status: { type: string, enum: [Scheduled, In Progress, Completed, Cancelled] }
+        roofAreaSqft: { type: number }
+        shading: { type: string, enum: [None, Partial, Heavy] }
+        connectionType: { type: string, enum: [Three-phase, Single-phase] }
+        sanctionedLoadKw: { type: number }
+        monthlyConsumptionKwh: { type: number }
+        recommendedKw: { type: number }
+        latitude: { type: string, nullable: true }
+        longitude: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        createdBy: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        lead:
+          type: object
+          nullable: true
+          properties:
+            id: { type: string, format: uuid }
+            customerName: { type: string }
+            mobileNumber: { type: string }
+            city: { type: string, nullable: true }
+            state: { type: string, nullable: true }
+            monthlyBillAmount: { type: number, nullable: true }
+            status: { type: string, nullable: true }
+        photos:
+          type: array
+          items:
+            $ref: "#/components/schemas/SurveyPhoto"
+
+    SurveyPhoto:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        surveyId: { type: string, format: uuid }
+        fileUrl: { type: string }
+        fileName: { type: string }
+        fileSizeBytes: { type: integer, nullable: true }
+        mimeType: { type: string, nullable: true }
+        uploadedBy: { type: string, format: uuid, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    SurveyInput:
+      type: object
+      required:
+        - surveyDateTime
+      properties:
+        leadId: { type: string, format: uuid }
+        customerName: { type: string }
+        mobileNumber: { type: string }
+        address: { type: string }
+        surveyDateTime: { type: string, format: date-time }
+        assignedTechId: { type: string, format: uuid }
+        assignedTech: { type: string }
+        notes: { type: string }
+        roofAreaSqft: { type: number, minimum: 0 }
+        shading: { type: string, enum: [None, Partial, Heavy] }
+        connectionType: { type: string, enum: [Three-phase, Single-phase] }
+        sanctionedLoadKw: { type: number, minimum: 0 }
+        monthlyConsumptionKwh: { type: number, minimum: 0 }
+        recommendedKw: { type: number, minimum: 0 }
+        latitude: { type: string }
+        longitude: { type: string }
+
+    Project:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        leadId: { type: string, format: uuid, nullable: true }
+        quotationId: { type: string, format: uuid, nullable: true }
+        projectName: { type: string }
+        customerName: { type: string }
+        customerPhone: { type: string, nullable: true }
+        customerEmail: { type: string, nullable: true }
+        systemSizeKw: { type: number }
+        grandTotal: { type: number }
+        netCustomerCost: { type: number }
+        status: { type: string, enum: [ACTIVE, COMPLETED, CANCELLED, ON_HOLD] }
+        milestones:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaymentMilestone"
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    PaymentMilestone:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        projectId: { type: string, format: uuid }
+        milestoneName: { type: string }
+        percentage: { type: number, nullable: true }
+        amountDue: { type: number }
+        paidAmount: { type: number }
+        dueDate: { type: string, format: date-time, nullable: true }
+        status: { type: string, enum: [Pending, Partially Received, Received, Overdue] }
+        sortOrder: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    PaymentReceipt:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        projectId: { type: string, format: uuid }
+        milestoneId: { type: string, format: uuid, nullable: true }
+        amount: { type: number }
+        mode: { type: string, enum: [UPI, Net Banking, Cheque, Cash, Credit/Debit Card] }
+        referenceNumber: { type: string, nullable: true }
+        paymentDate: { type: string, format: date-time }
+        status: { type: string, enum: [Successful, Pending, Failed] }
+        notes: { type: string, nullable: true }
+        recordedBy: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    Invoice:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        projectId: { type: string, format: uuid }
+        receiptId: { type: string, format: uuid, nullable: true }
+        invoiceNumber: { type: string }
+        invoiceDate: { type: string, format: date-time }
+        grossAmount: { type: number }
+        gstPercentage: { type: number }
+        gstAmount: { type: number }
+        netAmount: { type: number }
+        status: { type: string, enum: [Paid, Unpaid, Overdue, Cancelled] }
+        dueDate: { type: string, format: date-time, nullable: true }
+        notes: { type: string, nullable: true }
+        createdBy: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
 
 paths:
   /health/live:
@@ -1195,3 +1348,594 @@ paths:
           description: Quotation deleted
         404:
           description: Quotation not found
+
+  /surveys:
+    get:
+      tags: [Site Surveys]
+      summary: List Site Surveys
+      description: Returns a paginated list of site surveys with search, filters, sorting, and linked lead info.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, enum: [Scheduled, In Progress, Completed, Cancelled] }
+        - name: assignedTechId
+          in: query
+          schema: { type: string }
+        - name: leadId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: dateFrom
+          in: query
+          schema: { type: string, format: date-time }
+        - name: dateTo
+          in: query
+          schema: { type: string, format: date-time }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [surveyDateTime, createdAt, customerName], default: surveyDateTime }
+        - name: direction
+          in: query
+          schema: { type: string, enum: [asc, desc], default: desc }
+        - name: viewAll
+          in: query
+          schema: { type: boolean }
+      responses:
+        200:
+          description: Paginated surveys list
+
+    post:
+      tags: [Site Surveys]
+      summary: Schedule Site Survey
+      description: Creates and schedules a site survey. Transactionally updates linked lead status to SURVEY_SCHEDULED and logs activities.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SurveyInput"
+      responses:
+        201:
+          description: Survey scheduled successfully
+
+  /surveys/{id}:
+    get:
+      tags: [Site Surveys]
+      summary: Get Survey Details
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Survey details
+        404:
+          description: Survey not found
+
+    patch:
+      tags: [Site Surveys]
+      summary: Update Survey Specs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SurveyInput"
+      responses:
+        200:
+          description: Survey updated successfully
+        404:
+          description: Survey not found
+
+    delete:
+      tags: [Site Surveys]
+      summary: Soft Delete Survey
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Survey deleted
+        404:
+          description: Survey not found
+
+  /surveys/{id}/status:
+    patch:
+      tags: [Site Surveys]
+      summary: Update Survey Status
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [Scheduled, In Progress, Completed, Cancelled] }
+      responses:
+        200:
+          description: Status updated
+        404:
+          description: Survey not found
+        409:
+          description: Invalid transition
+
+  /surveys/{id}/assign:
+    patch:
+      tags: [Site Surveys]
+      summary: Assign Technician
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                assignedTechId: { type: string, format: uuid, nullable: true }
+                assignedTech: { type: string }
+      responses:
+        200:
+          description: Technician assigned
+        404:
+          description: Survey not found
+
+  /surveys/{id}/photos:
+    post:
+      tags: [Site Surveys]
+      summary: Upload / Save Survey Photo
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fileUrl, fileName]
+              properties:
+                fileUrl: { type: string }
+                fileName: { type: string }
+                fileSizeBytes: { type: integer }
+                mimeType: { type: string }
+      responses:
+        201:
+          description: Photo uploaded
+        404:
+          description: Survey not found
+
+  /surveys/{id}/photos/{photoId}:
+    delete:
+      tags: [Site Surveys]
+      summary: Delete Survey Photo
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: photoId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Photo deleted
+        404:
+          description: Photo not found
+
+  /leads/{leadId}/surveys:
+    get:
+      tags: [Site Surveys]
+      summary: Get Surveys for Lead
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: leadId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Lead surveys list
+
+  /projects:
+    get:
+      tags: [Projects]
+      summary: List Projects
+      description: Returns paginated solar installation projects with filtering and sorting.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, enum: [ACTIVE, COMPLETED, CANCELLED, ON_HOLD] }
+        - name: sortBy
+          in: query
+          schema: { type: string, enum: [createdAt, projectName, grandTotal] }
+        - name: sortOrder
+          in: query
+          schema: { type: string, enum: [asc, desc] }
+      responses:
+        200:
+          description: Paginated projects list
+    post:
+      tags: [Projects]
+      summary: Create Project from Accepted Quotation
+      description: Creates a project from an accepted quotation and auto-generates 3 milestones.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quotationId]
+              properties:
+                quotationId: { type: string, format: uuid }
+                projectName: { type: string }
+                milestoneDueDates:
+                  type: object
+                  properties:
+                    advance: { type: string, format: date-time }
+                    delivery: { type: string, format: date-time }
+                    commissioning: { type: string, format: date-time }
+      responses:
+        201:
+          description: Project created
+
+  /projects/{id}:
+    get:
+      tags: [Projects]
+      summary: Get Single Project
+      description: Returns project details with milestones, receipts, and balance summary.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Project details
+        404:
+          description: Not found
+    patch:
+      tags: [Projects]
+      summary: Update Project
+      description: Updates project name, status, or phone.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Project updated
+    delete:
+      tags: [Projects]
+      summary: Delete Project
+      description: Soft-deletes project and cascades to milestones, receipts, and invoices.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Project deleted
+
+  /projects/{projectId}/milestones:
+    post:
+      tags: [Projects]
+      summary: Add Custom Milestone
+      description: Adds a custom milestone to a project.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        201:
+          description: Milestone created
+
+  /projects/{projectId}/milestones/{milestoneId}:
+    patch:
+      tags: [Projects]
+      summary: Update Milestone
+      description: Modifies milestone details.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: milestoneId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Milestone updated
+    delete:
+      tags: [Projects]
+      summary: Delete Milestone
+      description: Deletes milestone if unpaid.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: milestoneId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Milestone deleted
+
+  /projects/{projectId}/payments:
+    post:
+      tags: [Payments & Receipts]
+      summary: Record Payment (Create Receipt)
+      description: Records payment against a milestone with optional auto-invoicing.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        201:
+          description: Payment recorded successfully
+
+  /payments/receipts:
+    get:
+      tags: [Payments & Receipts]
+      summary: List Receipts
+      description: Returns all payment receipts across projects.
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: Receipts list
+
+  /payments/receipts/{id}:
+    get:
+      tags: [Payments & Receipts]
+      summary: Get Single Receipt
+      description: Returns receipt details with nested project, milestone, and invoice.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Receipt details
+
+  /payments/receipts/{id}/void:
+    patch:
+      tags: [Payments & Receipts]
+      summary: Void Receipt
+      description: Admin voids receipt and reverses milestone balance and invoices.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Receipt voided
+
+  /payments/receipts/{id}/share:
+    post:
+      tags: [Payments & Receipts]
+      summary: Share Receipt via WhatsApp
+      description: Generates formatted WhatsApp message and direct click URL.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: WhatsApp URL generated
+
+  /payments/receipts/{id}/pdf:
+    get:
+      tags: [Payments & Receipts]
+      summary: Download Receipt PDF
+      description: Generates and downloads a formatted PDF payment receipt.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: PDF stream
+
+  /payments/outstanding:
+    get:
+      tags: [Payments & Receipts]
+      summary: List Outstanding Balances
+      description: Aggregated view of outstanding project balances.
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: Outstanding list
+
+  /payments/milestones:
+    get:
+      tags: [Payments & Receipts]
+      summary: List Milestone Schedules
+      description: Returns milestones across all projects.
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: Milestones list
+
+  /payments/dashboard:
+    get:
+      tags: [Payments & Receipts]
+      summary: Payment Dashboard KPIs
+      description: Aggregated metrics for total outstanding, collections this month, overdue receivables, and trend.
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: Dashboard metrics
+
+  /payments/check-overdue:
+    post:
+      tags: [Payments & Receipts]
+      summary: Overdue Milestones & Invoices Check
+      description: Cron trigger to mark overdue milestones and invoices.
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: Check completed
+
+  /invoices:
+    get:
+      tags: [Invoices]
+      summary: List Invoices
+      description: Returns paginated invoices across all projects.
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: Invoices list
+    post:
+      tags: [Invoices]
+      summary: Create Manual Invoice
+      description: Creates a manual invoice with auto-generated sequential number.
+      security:
+        - bearerAuth: []
+      responses:
+        201:
+          description: Invoice created
+
+  /invoices/{id}:
+    get:
+      tags: [Invoices]
+      summary: Get Single Invoice
+      description: Returns full invoice details.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Invoice details
+    delete:
+      tags: [Invoices]
+      summary: Cancel Invoice
+      description: Cancels invoice (requires admin if already Paid).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Invoice cancelled
+
+  /invoices/{id}/status:
+    patch:
+      tags: [Invoices]
+      summary: Update Invoice Status
+      description: Transitions invoice status (Unpaid, Paid, Overdue, Cancelled).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        200:
+          description: Status updated

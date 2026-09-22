@@ -5,7 +5,7 @@ import { sql, type SQL } from 'drizzle-orm'
 import { database } from '../../database/client.js'
 import { ensureCompanyQuotationTables } from '../../database/tenants.js'
 
-export const QUOTATION_STATUSES = ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED'] as const
+export const QUOTATION_STATUSES = ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED', 'CONVERTED'] as const
 export type QuotationStatus = (typeof QUOTATION_STATUSES)[number]
 
 export class QuotationInputError extends Error { }

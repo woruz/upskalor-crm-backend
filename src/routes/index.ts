@@ -13,6 +13,10 @@ import { handlePermissionRoute } from './permissions.js'
 import { handleQuotationRoute } from './quotations.js'
 import { handleUserRoute } from './users.js'
 import { handleRoleRoute } from './roles.js'
+import { handleSurveyRoute } from './surveys.js'
+import { handleProjectRoute } from './projects.js'
+import { handlePaymentRoute } from './payments.js'
+import { handleInvoiceRoute } from './invoices.js'
 import { handleWebhookRoute } from './webhooks.js'
 
 const getRequestId = (request: IncomingMessage): string => {
@@ -224,11 +228,27 @@ export const handleRoute = async (
         }
     }
 
+    if (await handleSurveyRoute(request, response, config, requestId, headOnly)) {
+        return
+    }
+
     if (await handleLeadRoute(request, response, config, requestId, headOnly)) {
         return
     }
 
     if (await handleQuotationRoute(request, response, config, requestId, headOnly)) {
+        return
+    }
+
+    if (await handleProjectRoute(request, response, config, requestId, headOnly)) {
+        return
+    }
+
+    if (await handlePaymentRoute(request, response, config, requestId, headOnly)) {
+        return
+    }
+
+    if (await handleInvoiceRoute(request, response, config, requestId, headOnly)) {
         return
     }
 

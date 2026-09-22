@@ -13,7 +13,14 @@ export { loadConfig }
 
 export const createHttpServer = (config: AppConfig = loadConfig()): Server => {
     const server = createServer((request, response) => {
-        void handleRoute(request, response, config)
+        handleRoute(request, response, config).catch((error) => {
+            writeLog('error', 'Unhandled route rejection', { error: error instanceof Error ? error.message : String(error) })
+            if (!response.headersSent) {
+                response.statusCode = 500
+                response.setHeader('content-type', 'application/json; charset=utf-8')
+                response.end(JSON.stringify({ error: { code: 'INTERNAL_SERVER_ERROR', message: 'An internal server error occurred' } }))
+            }
+        })
     })
 
     server.headersTimeout = SERVER.HEADERS_TIMEOUT_MS
@@ -67,9 +74,18 @@ const shutdown = (server: Server, signal: NodeJS.Signals): void => {
 
 export const startServer = (config: AppConfig = loadConfig()): Server => {
     initWorkers(config)
-    void ensureRootTables().catch((error) => {
-        writeLog('error', 'Failed to initialize root tables on startup', { error: error instanceof Error ? error.message : String(error) })
-    })
+    void ensureRootTables()
+        .then(() => {
+            writeLog('info', 'Root tables verified/initialized')
+        })
+        .catch((error) => {
+            const errCause = (error as { cause?: unknown })?.cause
+            const causeMsg = errCause instanceof Error ? errCause.message : errCause ? JSON.stringify(errCause) : undefined
+            const errDetails = error instanceof Error
+                ? (causeMsg ? `${error.message} | Cause: ${causeMsg}` : error.message)
+                : String(error)
+            writeLog('error', 'Failed to initialize root tables on startup', { error: errDetails })
+        })
     const server = createHttpServer(config)
 
     server.once('error', (error) => {

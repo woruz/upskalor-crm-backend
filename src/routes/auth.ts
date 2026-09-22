@@ -243,7 +243,11 @@ export const handleAuthRoute = async (
                     return true
                 }
 
-                const errDetails = error instanceof Error ? error.message : String(error)
+                const errCause = (error as { cause?: unknown })?.cause
+                const causeMsg = errCause instanceof Error ? errCause.message : errCause ? JSON.stringify(errCause) : undefined
+                const errDetails = error instanceof Error
+                    ? (causeMsg ? `${error.message} | Cause: ${causeMsg}` : error.message)
+                    : String(error)
                 writeLog('error', 'User login failed', { error: errDetails, requestId })
                 sendError(response, 500, 'LOGIN_FAILED', 'User login failed', requestId, headOnly, errDetails)
                 return true

@@ -36,7 +36,7 @@ void test('parseLeadInput rejects invalid mobile, email, and negative amount', (
 })
 
 void test('parseLeadInput validates statuses and executive UUIDs', () => {
-    assert.deepEqual(LEAD_STATUSES, ['NEW', 'CONTACTED', 'FOLLOW_UP', 'INTERESTED', 'NOT_INTERESTED', 'CONVERTED', 'LOST'])
+    assert.deepEqual(LEAD_STATUSES, ['NEW', 'CONTACTED', 'FOLLOW_UP', 'INTERESTED', 'SURVEY_SCHEDULED', 'NOT_INTERESTED', 'CONVERTED', 'LOST'])
     assert.throws(() => parseLeadInput({ ...validLead, status: 'UNKNOWN' }), /status is invalid/)
     assert.throws(() => parseLeadInput({ ...validLead, assignedExecutive: 'not-a-uuid' }), /assignedExecutive is invalid/)
 })
