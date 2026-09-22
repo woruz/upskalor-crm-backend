@@ -14,7 +14,11 @@ export const RESOURCE_DEFINITIONS = [
     { name: 'tasks', description: 'Task records' },
     { name: 'notes', description: 'Notes and comments' },
     { name: 'files', description: 'File entities' },
-    { name: 'quotations', description: 'Quotation records' }
+    { name: 'quotations', description: 'Quotation records' },
+    { name: 'surveys', description: 'Site survey records' },
+    { name: 'projects', description: 'Project records' },
+    { name: 'payments', description: 'Payment records and receipts' },
+    { name: 'invoices', description: 'Invoice records' }
 ] as const
 
 export type ActionName = (typeof ACTION_DEFINITIONS)[number]['name']

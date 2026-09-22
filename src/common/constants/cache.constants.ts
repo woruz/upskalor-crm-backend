@@ -27,4 +27,12 @@ export const CACHE_KEYS = {
     /** Flag indicating tenant tables have been created */
     tenantInitialized: (companyId: string): string =>
         `tenant_init:${companyId}`,
+
+    /** Flag indicating tenant survey tables have been created */
+    tenantSurveysInitialized: (companyId: string): string =>
+        `tenant_surveys_init:${companyId}`,
+
+    /** Flag indicating tenant payment, milestone, receipt, and invoice tables have been created */
+    tenantPaymentsInitialized: (companyId: string): string =>
+        `tenant_payments_init:${companyId}`,
 } as const

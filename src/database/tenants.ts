@@ -67,13 +67,28 @@ const createSchema = async (db: Pick<typeof database, 'execute'>, schemaName: st
 
 let rootTablesInitialized = false
 
+export const executeSqlScript = async (
+    db: Pick<typeof database, 'execute'>,
+    script: string
+): Promise<void> => {
+    const statements = script
+        .split(';')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+
+    for (const statement of statements) {
+        await db.execute(sql.raw(statement))
+    }
+}
+
 export const ensureRootTables = async (db: Pick<typeof database, 'execute'> = database): Promise<void> => {
     if (rootTablesInitialized) {
         return
     }
 
-    await db.execute(
-        sql.raw(`
+    await executeSqlScript(
+        db,
+        `
         create schema if not exists "root";
 
         create table if not exists "root"."companies" (
@@ -140,6 +155,7 @@ export const ensureRootTables = async (db: Pick<typeof database, 'execute'> = da
             "updated_at" timestamptz default now() not null
         );
 
+        alter table "root"."users" add column if not exists "role" varchar(60) default 'user' not null;
         alter table "root"."users" add column if not exists "status" varchar(20) default 'ACTIVE' not null;
         create unique index if not exists "users_company_email_unique" on "root"."users" ("company_id", "email");
         create index if not exists "users_company_id_idx" on "root"."users" ("company_id");
@@ -186,9 +202,13 @@ export const ensureRootTables = async (db: Pick<typeof database, 'execute'> = da
             ('tasks', 'Task records'),
             ('notes', 'Notes and comments'),
             ('files', 'File entities'),
-            ('quotations', 'Quotation records')
+            ('quotations', 'Quotation records'),
+            ('surveys', 'Site survey records'),
+            ('projects', 'Project records'),
+            ('payments', 'Payment records and receipts'),
+            ('invoices', 'Invoice records')
         on conflict ("name") do nothing;
-    `)
+    `
     )
 
     rootTablesInitialized = true
@@ -236,7 +256,10 @@ export const createCompanyPermissionTables = async (
     }
 
     const values = defaultPermissions
-        .map(({ roleName, resourceName, actionName }) => `('${roleName}', '${resourceName}', '${actionName}')`)
+        .map(
+            ({ roleName, resourceName, actionName }) =>
+                `('${roleName}', '${resourceName}', '${actionName}')`
+        )
         .join(', ')
 
     await db.execute(
@@ -252,8 +275,9 @@ export const createCompanyLeadTables = async (transaction: Pick<typeof database,
     resolveCompanySchema(schemaName)
     const qs = quotedSchema(schemaName)
 
-    await transaction.execute(
-        sql.raw(`
+    await executeSqlScript(
+        transaction,
+        `
         create table if not exists ${qs}.leads (
             id uuid primary key default gen_random_uuid(),
             customer_name varchar(150) not null,
@@ -333,7 +357,7 @@ export const createCompanyLeadTables = async (transaction: Pick<typeof database,
             updated_at timestamptz not null default now()
         );
         create index if not exists lead_exports_requested_by_idx on ${qs}.lead_exports (requested_by, created_at);
-    `)
+    `
     )
 }
 
@@ -341,8 +365,9 @@ export const createCompanyQuotationTables = async (transaction: Pick<typeof data
     resolveCompanySchema(schemaName)
     const qs = quotedSchema(schemaName)
 
-    await transaction.execute(
-        sql.raw(`
+    await executeSqlScript(
+        transaction,
+        `
         create table if not exists ${qs}.quotations (
             id uuid primary key default gen_random_uuid(),
             lead_id uuid references ${qs}.leads(id) on delete set null,
@@ -390,7 +415,162 @@ export const createCompanyQuotationTables = async (transaction: Pick<typeof data
             updated_at timestamptz not null default now()
         );
         create index if not exists quotation_items_quotation_id_idx on ${qs}.quotation_items (quotation_id, sort_order);
-    `)
+    `
+    )
+}
+
+export const createCompanySurveyTables = async (transaction: Pick<typeof database, 'execute'>, schemaName: string): Promise<void> => {
+    resolveCompanySchema(schemaName)
+    const qs = quotedSchema(schemaName)
+
+    await executeSqlScript(
+        transaction,
+        `
+        create table if not exists ${qs}.surveys (
+            id uuid primary key default gen_random_uuid(),
+            lead_id uuid references ${qs}.leads(id) on delete set null,
+            customer_name varchar(150) not null,
+            mobile_number varchar(30) not null,
+            address text,
+            survey_date_time timestamptz not null,
+            assigned_tech_id uuid references root.users(id) on delete set null,
+            assigned_tech varchar(150) not null default 'Unassigned',
+            status varchar(30) not null default 'Scheduled',
+            roof_area_sqft numeric(10, 2) default 0,
+            shading varchar(20) default 'None',
+            connection_type varchar(30) default 'Three-phase',
+            sanctioned_load_kw numeric(8, 2) default 0,
+            monthly_consumption_kwh numeric(10, 2) default 0,
+            recommended_kw numeric(8, 2) default 0,
+            latitude varchar(30),
+            longitude varchar(30),
+            notes text,
+            created_by uuid not null references root.users(id),
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            deleted_at timestamptz
+        );
+        create index if not exists surveys_lead_id_idx on ${qs}.surveys (lead_id);
+        create index if not exists surveys_assigned_tech_id_idx on ${qs}.surveys (assigned_tech_id);
+        create index if not exists surveys_status_idx on ${qs}.surveys (status);
+        create index if not exists surveys_survey_date_time_idx on ${qs}.surveys (survey_date_time);
+        create index if not exists surveys_deleted_at_idx on ${qs}.surveys (deleted_at);
+
+        create table if not exists ${qs}.survey_photos (
+            id uuid primary key default gen_random_uuid(),
+            survey_id uuid not null references ${qs}.surveys(id) on delete cascade,
+            file_url text not null,
+            file_name varchar(255) not null,
+            file_size_bytes integer,
+            mime_type varchar(50),
+            uploaded_by uuid references root.users(id),
+            created_at timestamptz not null default now()
+        );
+        create index if not exists survey_photos_survey_id_idx on ${qs}.survey_photos (survey_id);
+    `
+    )
+}
+
+export const createCompanyPaymentTables = async (transaction: Pick<typeof database, 'execute'>, schemaName: string): Promise<void> => {
+    resolveCompanySchema(schemaName)
+    const qs = quotedSchema(schemaName)
+
+    await executeSqlScript(
+        transaction,
+        `
+        create table if not exists ${qs}.projects (
+            id uuid primary key default gen_random_uuid(),
+            lead_id uuid references ${qs}.leads(id) on delete set null,
+            quotation_id uuid references ${qs}.quotations(id) on delete set null,
+            project_name varchar(250) not null,
+            customer_name varchar(200) not null,
+            customer_phone varchar(20),
+            customer_email varchar(255),
+            system_size_kw numeric(8, 2) not null,
+            grand_total numeric(12, 2) not null default 0,
+            net_customer_cost numeric(12, 2) not null default 0,
+            status varchar(30) not null default 'ACTIVE',
+            created_by uuid not null references root.users(id),
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            deleted_at timestamptz
+        );
+        create index if not exists projects_lead_id_idx on ${qs}.projects (lead_id);
+        create index if not exists projects_quotation_id_idx on ${qs}.projects (quotation_id);
+        create index if not exists projects_status_idx on ${qs}.projects (status);
+        create index if not exists projects_created_at_idx on ${qs}.projects (created_at);
+        create index if not exists projects_deleted_at_idx on ${qs}.projects (deleted_at);
+
+        create table if not exists ${qs}.payment_milestones (
+            id uuid primary key default gen_random_uuid(),
+            project_id uuid not null references ${qs}.projects(id) on delete cascade,
+            milestone_name varchar(100) not null,
+            percentage numeric(5, 2),
+            amount_due numeric(12, 2) not null,
+            paid_amount numeric(12, 2) not null default 0,
+            due_date timestamptz,
+            status varchar(30) not null default 'Pending',
+            sort_order integer not null default 0,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            deleted_at timestamptz
+        );
+        create index if not exists payment_milestones_project_id_idx on ${qs}.payment_milestones (project_id, sort_order);
+        create index if not exists payment_milestones_status_idx on ${qs}.payment_milestones (status);
+        create index if not exists payment_milestones_due_date_idx on ${qs}.payment_milestones (due_date);
+        create index if not exists payment_milestones_deleted_at_idx on ${qs}.payment_milestones (deleted_at);
+
+        create table if not exists ${qs}.payment_receipts (
+            id uuid primary key default gen_random_uuid(),
+            project_id uuid not null references ${qs}.projects(id) on delete cascade,
+            milestone_id uuid references ${qs}.payment_milestones(id) on delete set null,
+            amount numeric(12, 2) not null,
+            mode varchar(30) not null,
+            reference_number varchar(100),
+            payment_date timestamptz not null default now(),
+            status varchar(20) not null default 'Successful',
+            notes text,
+            recorded_by uuid not null references root.users(id),
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            deleted_at timestamptz
+        );
+        create index if not exists payment_receipts_project_id_idx on ${qs}.payment_receipts (project_id);
+        create index if not exists payment_receipts_milestone_id_idx on ${qs}.payment_receipts (milestone_id);
+        create index if not exists payment_receipts_payment_date_idx on ${qs}.payment_receipts (payment_date);
+        create index if not exists payment_receipts_status_idx on ${qs}.payment_receipts (status);
+        create index if not exists payment_receipts_deleted_at_idx on ${qs}.payment_receipts (deleted_at);
+
+        create table if not exists ${qs}.invoice_sequences (
+            year integer primary key,
+            last_number integer not null default 0
+        );
+
+        create table if not exists ${qs}.invoices (
+            id uuid primary key default gen_random_uuid(),
+            project_id uuid not null references ${qs}.projects(id) on delete cascade,
+            receipt_id uuid references ${qs}.payment_receipts(id) on delete set null,
+            invoice_number varchar(50) not null unique,
+            invoice_date timestamptz not null default now(),
+            gross_amount numeric(12, 2) not null,
+            gst_percentage numeric(5, 2) not null default 18.00,
+            gst_amount numeric(12, 2) not null,
+            net_amount numeric(12, 2) not null,
+            status varchar(20) not null default 'Unpaid',
+            due_date timestamptz,
+            notes text,
+            created_by uuid not null references root.users(id),
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            deleted_at timestamptz
+        );
+        create index if not exists invoices_project_id_idx on ${qs}.invoices (project_id);
+        create index if not exists invoices_receipt_id_idx on ${qs}.invoices (receipt_id);
+        create index if not exists invoices_invoice_number_idx on ${qs}.invoices (invoice_number);
+        create index if not exists invoices_status_idx on ${qs}.invoices (status);
+        create index if not exists invoices_invoice_date_idx on ${qs}.invoices (invoice_date);
+        create index if not exists invoices_deleted_at_idx on ${qs}.invoices (deleted_at);
+    `
     )
 }
 
@@ -445,6 +625,8 @@ export const ensureCompanyTables = async (companyId: string, force = false): Pro
     await createCompanyPermissionTables(database, schemaName)
     await createCompanyLeadTables(database, schemaName)
     await createCompanyQuotationTables(database, schemaName)
+    await createCompanySurveyTables(database, schemaName)
+    await createCompanyPaymentTables(database, schemaName)
 
     await setCache(initKey, true, CACHE_TTL.TENANT_INITIALIZED)
 
@@ -457,6 +639,42 @@ export const ensureCompanyLeadTables = async (companyId: string, force = false):
 
 export const ensureCompanyQuotationTables = async (companyId: string, force = false): Promise<string> => {
     return ensureCompanyTables(companyId, force)
+}
+
+export const ensureCompanySurveyTables = async (companyId: string, force = false): Promise<string> => {
+    const surveyInitKey = CACHE_KEYS.tenantSurveysInitialized(companyId)
+
+    if (!force) {
+        const initialized = await getCache<boolean>(surveyInitKey)
+        if (initialized === true) {
+            return getCompanySchemaNameById(companyId)
+        }
+    }
+
+    const schemaName = await getCompanySchemaNameById(companyId)
+    await createSchema(database, schemaName)
+    await createCompanySurveyTables(database, schemaName)
+    await setCache(surveyInitKey, true, CACHE_TTL.TENANT_INITIALIZED)
+
+    return schemaName
+}
+
+export const ensureCompanyPaymentTables = async (companyId: string, force = false): Promise<string> => {
+    const paymentInitKey = CACHE_KEYS.tenantPaymentsInitialized(companyId)
+
+    if (!force) {
+        const initialized = await getCache<boolean>(paymentInitKey)
+        if (initialized === true) {
+            return getCompanySchemaNameById(companyId)
+        }
+    }
+
+    const schemaName = await getCompanySchemaNameById(companyId)
+    await createSchema(database, schemaName)
+    await createCompanyPaymentTables(database, schemaName)
+    await setCache(paymentInitKey, true, CACHE_TTL.TENANT_INITIALIZED)
+
+    return schemaName
 }
 
 export const upsertRolePermission = async (companyId: string, permission: PermissionAssignment): Promise<PermissionAssignment> => {
@@ -538,6 +756,7 @@ export const registerCompany = async ({
         await createCompanyPermissionTables(transaction, schemaName)
         await createCompanyLeadTables(transaction, schemaName)
         await createCompanyQuotationTables(transaction, schemaName)
+        await createCompanySurveyTables(transaction, schemaName)
 
         await transaction
             .insert(roles)
